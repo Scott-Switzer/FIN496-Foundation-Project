@@ -1,0 +1,192 @@
+original_path,filename,classification,included,consolidated_path,size_bytes,reason
+Data/master/_data_manifest_bloomberg.csv,_data_manifest_bloomberg.csv,bloomberg_master_input,yes,Data/consolidated_csvs/bloomberg/master/_data_manifest_bloomberg.csv,3675,Included: canonical Bloomberg/master input or manifest table.
+Data/master/_data_quality_bloomberg.csv,_data_quality_bloomberg.csv,bloomberg_master_input,yes,Data/consolidated_csvs/bloomberg/master/_data_quality_bloomberg.csv,1554,Included: canonical Bloomberg/master input or manifest table.
+Data/master/master_logrets_bloomberg.csv,master_logrets_bloomberg.csv,bloomberg_master_input,yes,Data/consolidated_csvs/bloomberg/master/master_logrets_bloomberg.csv,1553958,Included: canonical Bloomberg/master input or manifest table.
+Data/master/master_prices_bloomberg.csv,master_prices_bloomberg.csv,bloomberg_master_input,yes,Data/consolidated_csvs/bloomberg/master/master_prices_bloomberg.csv,1308924,Included: canonical Bloomberg/master input or manifest table.
+Data/master/taa_log_returns.csv,taa_log_returns.csv,bloomberg_master_input,yes,Data/consolidated_csvs/bloomberg/master/taa_log_returns.csv,445820,Included: canonical Bloomberg/master input or manifest table.
+Data/master/taa_prices.csv,taa_prices.csv,bloomberg_master_input,yes,Data/consolidated_csvs/bloomberg/master/taa_prices.csv,193562,Included: canonical Bloomberg/master input or manifest table.
+Data/master/fred_data.csv,fred_data.csv,fred_master_input,yes,Data/consolidated_csvs/fred/master/fred_data.csv,397676,Included: canonical combined FRED input table used by the pipeline.
+Data/fred/_pull_log.csv,_pull_log.csv,fred_raw_pull,yes,Data/consolidated_csvs/fred/raw/_pull_log.csv,4983,Included: original FRED CSV pull.
+Data/fred/commodity_Brent_Crude_Oil_Price.csv,commodity_Brent_Crude_Oil_Price.csv,fred_raw_pull,yes,Data/consolidated_csvs/fred/raw/commodity_Brent_Crude_Oil_Price.csv,170721,Included: original FRED CSV pull.
+Data/fred/commodity_Copper_Price_USD.csv,commodity_Copper_Price_USD.csv,fred_raw_pull,yes,Data/consolidated_csvs/fred/raw/commodity_Copper_Price_USD.csv,10953,Included: original FRED CSV pull.
+Data/fred/commodity_WTI_Crude_Oil_Price.csv,commodity_WTI_Crude_Oil_Price.csv,fred_raw_pull,yes,Data/consolidated_csvs/fred/raw/commodity_WTI_Crude_Oil_Price.csv,176108,Included: original FRED CSV pull.
+Data/fred/credit_Chicago_Fed_NFCI.csv,credit_Chicago_Fed_NFCI.csv,fred_raw_pull,yes,Data/consolidated_csvs/fred/raw/credit_Chicago_Fed_NFCI.csv,56492,Included: original FRED CSV pull.
+Data/fred/credit_Chicago_Fed_NFCI_Credit_Subindex.csv,credit_Chicago_Fed_NFCI_Credit_Subindex.csv,fred_raw_pull,yes,Data/consolidated_csvs/fred/raw/credit_Chicago_Fed_NFCI_Credit_Subindex.csv,56170,Included: original FRED CSV pull.
+Data/fred/credit_ICE_BofA_HY_Effective_Yield.csv,credit_ICE_BofA_HY_Effective_Yield.csv,fred_raw_pull,yes,Data/consolidated_csvs/fred/raw/credit_ICE_BofA_HY_Effective_Yield.csv,124251,Included: original FRED CSV pull.
+Data/fred/credit_ICE_BofA_HY_OAS.csv,credit_ICE_BofA_HY_OAS.csv,fred_raw_pull,yes,Data/consolidated_csvs/fred/raw/credit_ICE_BofA_HY_OAS.csv,122946,Included: original FRED CSV pull.
+Data/fred/credit_ICE_BofA_IG_Effective_Yield.csv,credit_ICE_BofA_IG_Effective_Yield.csv,fred_raw_pull,yes,Data/consolidated_csvs/fred/raw/credit_ICE_BofA_IG_Effective_Yield.csv,122657,Included: original FRED CSV pull.
+Data/fred/credit_ICE_BofA_IG_OAS.csv,credit_ICE_BofA_IG_OAS.csv,fred_raw_pull,yes,Data/consolidated_csvs/fred/raw/credit_ICE_BofA_IG_OAS.csv,122639,Included: original FRED CSV pull.
+Data/fred/equity_SP500_Index_Level.csv,equity_SP500_Index_Level.csv,fred_raw_pull,yes,Data/consolidated_csvs/fred/raw/equity_SP500_Index_Level.csv,48710,Included: original FRED CSV pull.
+Data/fred/equity_VIX_Close.csv,equity_VIX_Close.csv,fred_raw_pull,yes,Data/consolidated_csvs/fred/raw/equity_VIX_Close.csv,158339,Included: original FRED CSV pull.
+Data/fred/fx_JPY_USD_Exchange_Rate.csv,fx_JPY_USD_Exchange_Rate.csv,fred_raw_pull,yes,Data/consolidated_csvs/fred/raw/fx_JPY_USD_Exchange_Rate.csv,251479,Included: original FRED CSV pull.
+Data/fred/fx_USD_AUD_Exchange_Rate.csv,fx_USD_AUD_Exchange_Rate.csv,fred_raw_pull,yes,Data/consolidated_csvs/fred/raw/fx_USD_AUD_Exchange_Rate.csv,252601,Included: original FRED CSV pull.
+Data/fred/fx_USD_Broad_Trade_Weighted_Index.csv,fx_USD_Broad_Trade_Weighted_Index.csv,fred_raw_pull,yes,Data/consolidated_csvs/fred/raw/fx_USD_Broad_Trade_Weighted_Index.csv,101309,Included: original FRED CSV pull.
+Data/fred/fx_USD_EUR_Exchange_Rate.csv,fx_USD_EUR_Exchange_Rate.csv,fred_raw_pull,yes,Data/consolidated_csvs/fred/raw/fx_USD_EUR_Exchange_Rate.csv,125421,Included: original FRED CSV pull.
+Data/fred/liquidity_Bank_Prime_Loan_Rate.csv,liquidity_Bank_Prime_Loan_Rate.csv,fred_raw_pull,yes,Data/consolidated_csvs/fred/raw/liquidity_Bank_Prime_Loan_Rate.csv,284527,Included: original FRED CSV pull.
+Data/fred/liquidity_Fed_Discount_Window_Credit.csv,liquidity_Fed_Discount_Window_Credit.csv,fred_raw_pull,yes,Data/consolidated_csvs/fred/raw/liquidity_Fed_Discount_Window_Credit.csv,94655,Included: original FRED CSV pull.
+Data/fred/liquidity_Monetary_Base.csv,liquidity_Monetary_Base.csv,fred_raw_pull,yes,Data/consolidated_csvs/fred/raw/liquidity_Monetary_Base.csv,13759,Included: original FRED CSV pull.
+Data/fred/liquidity_Reserve_Balances_at_Fed.csv,liquidity_Reserve_Balances_at_Fed.csv,fred_raw_pull,yes,Data/consolidated_csvs/fred/raw/liquidity_Reserve_Balances_at_Fed.csv,22342,Included: original FRED CSV pull.
+Data/fred/macro_Building_Permits.csv,macro_Building_Permits.csv,fred_raw_pull,yes,Data/consolidated_csvs/fred/raw/macro_Building_Permits.csv,12589,Included: original FRED CSV pull.
+Data/fred/macro_CPI_All_Urban_Consumers.csv,macro_CPI_All_Urban_Consumers.csv,fred_raw_pull,yes,Data/consolidated_csvs/fred/raw/macro_CPI_All_Urban_Consumers.csv,16398,Included: original FRED CSV pull.
+Data/fred/macro_Capacity_Utilization.csv,macro_Capacity_Utilization.csv,fred_raw_pull,yes,Data/consolidated_csvs/fred/raw/macro_Capacity_Utilization.csv,13443,Included: original FRED CSV pull.
+Data/fred/macro_Case_Shiller_Home_Price_Index.csv,macro_Case_Shiller_Home_Price_Index.csv,fred_raw_pull,yes,Data/consolidated_csvs/fred/raw/macro_Case_Shiller_Home_Price_Index.csv,8740,Included: original FRED CSV pull.
+Data/fred/macro_Conference_Board_LEI.csv,macro_Conference_Board_LEI.csv,fred_raw_pull,yes,Data/consolidated_csvs/fred/raw/macro_Conference_Board_LEI.csv,7336,Included: original FRED CSV pull.
+Data/fred/macro_Continuing_Jobless_Claims.csv,macro_Continuing_Jobless_Claims.csv,fred_raw_pull,yes,Data/consolidated_csvs/fred/raw/macro_Continuing_Jobless_Claims.csv,58770,Included: original FRED CSV pull.
+Data/fred/macro_Core_CPI_ex_Food_Energy.csv,macro_Core_CPI_ex_Food_Energy.csv,fred_raw_pull,yes,Data/consolidated_csvs/fred/raw/macro_Core_CPI_ex_Food_Energy.csv,14246,Included: original FRED CSV pull.
+Data/fred/macro_Core_PCE_Price_Index.csv,macro_Core_PCE_Price_Index.csv,fred_raw_pull,yes,Data/consolidated_csvs/fred/raw/macro_Core_PCE_Price_Index.csv,14532,Included: original FRED CSV pull.
+Data/fred/macro_Housing_Starts.csv,macro_Housing_Starts.csv,fred_raw_pull,yes,Data/consolidated_csvs/fred/raw/macro_Housing_Starts.csv,12812,Included: original FRED CSV pull.
+Data/fred/macro_Industrial_Production_Index.csv,macro_Industrial_Production_Index.csv,fred_raw_pull,yes,Data/consolidated_csvs/fred/raw/macro_Industrial_Production_Index.csv,24190,Included: original FRED CSV pull.
+Data/fred/macro_Initial_Jobless_Claims_Weekly.csv,macro_Initial_Jobless_Claims_Weekly.csv,fred_raw_pull,yes,Data/consolidated_csvs/fred/raw/macro_Initial_Jobless_Claims_Weekly.csv,55699,Included: original FRED CSV pull.
+Data/fred/macro_LEI.csv,macro_LEI.csv,fred_raw_pull,yes,Data/consolidated_csvs/fred/raw/macro_LEI.csv,7388,Included: original FRED CSV pull.
+Data/fred/macro_Labour_Force_Participation_Rate.csv,macro_Labour_Force_Participation_Rate.csv,fred_raw_pull,yes,Data/consolidated_csvs/fred/raw/macro_Labour_Force_Participation_Rate.csv,15063,Included: original FRED CSV pull.
+Data/fred/macro_M2_Money_Supply.csv,macro_M2_Money_Supply.csv,fred_raw_pull,yes,Data/consolidated_csvs/fred/raw/macro_M2_Money_Supply.csv,14498,Included: original FRED CSV pull.
+Data/fred/macro_M2_Velocity.csv,macro_M2_Velocity.csv,fred_raw_pull,yes,Data/consolidated_csvs/fred/raw/macro_M2_Velocity.csv,4543,Included: original FRED CSV pull.
+Data/fred/macro_NFCI.csv,macro_NFCI.csv,fred_raw_pull,yes,Data/consolidated_csvs/fred/raw/macro_NFCI.csv,56813,Included: original FRED CSV pull.
+Data/fred/macro_Nonfarm_Payrolls.csv,macro_Nonfarm_Payrolls.csv,fred_raw_pull,yes,Data/consolidated_csvs/fred/raw/macro_Nonfarm_Payrolls.csv,18301,Included: original FRED CSV pull.
+Data/fred/macro_OECD_CLI_USA.csv,macro_OECD_CLI_USA.csv,fred_raw_pull,yes,Data/consolidated_csvs/fred/raw/macro_OECD_CLI_USA.csv,16501,Included: original FRED CSV pull.
+Data/fred/macro_OECD_Consumer_Confidence.csv,macro_OECD_Consumer_Confidence.csv,fred_raw_pull,yes,Data/consolidated_csvs/fred/raw/macro_OECD_Consumer_Confidence.csv,15310,Included: original FRED CSV pull.
+Data/fred/macro_PCE_Price_Index.csv,macro_PCE_Price_Index.csv,fred_raw_pull,yes,Data/consolidated_csvs/fred/raw/macro_PCE_Price_Index.csv,14546,Included: original FRED CSV pull.
+Data/fred/macro_Personal_Consumption_Expenditures.csv,macro_Personal_Consumption_Expenditures.csv,fred_raw_pull,yes,Data/consolidated_csvs/fred/raw/macro_Personal_Consumption_Expenditures.csv,14542,Included: original FRED CSV pull.
+Data/fred/macro_Retail_Sales.csv,macro_Retail_Sales.csv,fred_raw_pull,yes,Data/consolidated_csvs/fred/raw/macro_Retail_Sales.csv,7404,Included: original FRED CSV pull.
+Data/fred/macro_UMich_Consumer_Sentiment.csv,macro_UMich_Consumer_Sentiment.csv,fred_raw_pull,yes,Data/consolidated_csvs/fred/raw/macro_UMich_Consumer_Sentiment.csv,13337,Included: original FRED CSV pull.
+Data/fred/macro_US_GDP_Growth_QoQ_Annualised.csv,macro_US_GDP_Growth_QoQ_Annualised.csv,fred_raw_pull,yes,Data/consolidated_csvs/fred/raw/macro_US_GDP_Growth_QoQ_Annualised.csv,4823,Included: original FRED CSV pull.
+Data/fred/macro_US_Real_GDP_Level.csv,macro_US_Real_GDP_Level.csv,fred_raw_pull,yes,Data/consolidated_csvs/fred/raw/macro_US_Real_GDP_Level.csv,6447,Included: original FRED CSV pull.
+Data/fred/macro_Unemployment_Rate.csv,macro_Unemployment_Rate.csv,fred_raw_pull,yes,Data/consolidated_csvs/fred/raw/macro_Unemployment_Rate.csv,14126,Included: original FRED CSV pull.
+Data/fred/macro_VIX.csv,macro_VIX.csv,fred_raw_pull,yes,Data/consolidated_csvs/fred/raw/macro_VIX.csv,159237,Included: original FRED CSV pull.
+Data/fred/macro_unemployment.csv,macro_unemployment.csv,fred_raw_pull,yes,Data/consolidated_csvs/fred/raw/macro_unemployment.csv,14121,Included: original FRED CSV pull.
+Data/fred/macro_yield_curve_10y2y.csv,macro_yield_curve_10y2y.csv,fred_raw_pull,yes,Data/consolidated_csvs/fred/raw/macro_yield_curve_10y2y.csv,207961,Included: original FRED CSV pull.
+Data/fred/macro_yield_curve_10y3m.csv,macro_yield_curve_10y3m.csv,fred_raw_pull,yes,Data/consolidated_csvs/fred/raw/macro_yield_curve_10y3m.csv,184069,Included: original FRED CSV pull.
+Data/fred/rates_10Y_Breakeven_Inflation.csv,rates_10Y_Breakeven_Inflation.csv,fred_raw_pull,yes,Data/consolidated_csvs/fred/raw/rates_10Y_Breakeven_Inflation.csv,95561,Included: original FRED CSV pull.
+Data/fred/rates_10Y_TIPS_Real_Yield.csv,rates_10Y_TIPS_Real_Yield.csv,fred_raw_pull,yes,Data/consolidated_csvs/fred/raw/rates_10Y_TIPS_Real_Yield.csv,96466,Included: original FRED CSV pull.
+Data/fred/rates_5Y5Y_Forward_Inflation_Breakeven.csv,rates_5Y5Y_Forward_Inflation_Breakeven.csv,fred_raw_pull,yes,Data/consolidated_csvs/fred/raw/rates_5Y5Y_Forward_Inflation_Breakeven.csv,95530,Included: original FRED CSV pull.
+Data/fred/rates_5Y_Breakeven_Inflation.csv,rates_5Y_Breakeven_Inflation.csv,fred_raw_pull,yes,Data/consolidated_csvs/fred/raw/rates_5Y_Breakeven_Inflation.csv,95603,Included: original FRED CSV pull.
+Data/fred/rates_5Y_TIPS_Real_Yield.csv,rates_5Y_TIPS_Real_Yield.csv,fred_raw_pull,yes,Data/consolidated_csvs/fred/raw/rates_5Y_TIPS_Real_Yield.csv,97317,Included: original FRED CSV pull.
+Data/fred/rates_Fed_Funds_Effective_Rate_Daily.csv,rates_Fed_Funds_Effective_Rate_Daily.csv,fred_raw_pull,yes,Data/consolidated_csvs/fred/raw/rates_Fed_Funds_Effective_Rate_Daily.csv,415593,Included: original FRED CSV pull.
+Data/fred/rates_Fed_Funds_Effective_Rate_Monthly.csv,rates_Fed_Funds_Effective_Rate_Monthly.csv,fred_raw_pull,yes,Data/consolidated_csvs/fred/raw/rates_Fed_Funds_Effective_Rate_Monthly.csv,13770,Included: original FRED CSV pull.
+Data/fred/rates_Germany_10Y_Bund_Yield.csv,rates_Germany_10Y_Bund_Yield.csv,fred_raw_pull,yes,Data/consolidated_csvs/fred/raw/rates_Germany_10Y_Bund_Yield.csv,16885,Included: original FRED CSV pull.
+Data/fred/rates_SOFR.csv,rates_SOFR.csv,fred_raw_pull,yes,Data/consolidated_csvs/fred/raw/rates_SOFR.csv,32802,Included: original FRED CSV pull.
+Data/fred/rates_TED_Spread_Historical.csv,rates_TED_Spread_Historical.csv,fred_raw_pull,yes,Data/consolidated_csvs/fred/raw/rates_TED_Spread_Historical.csv,147395,Included: original FRED CSV pull.
+Data/fred/rates_US_10Y_Treasury_Yield.csv,rates_US_10Y_Treasury_Yield.csv,fred_raw_pull,yes,Data/consolidated_csvs/fred/raw/rates_US_10Y_Treasury_Yield.csv,265183,Included: original FRED CSV pull.
+Data/fred/rates_US_1Y_Treasury_Yield.csv,rates_US_1Y_Treasury_Yield.csv,fred_raw_pull,yes,Data/consolidated_csvs/fred/raw/rates_US_1Y_Treasury_Yield.csv,264768,Included: original FRED CSV pull.
+Data/fred/rates_US_2Y_Treasury_Yield.csv,rates_US_2Y_Treasury_Yield.csv,fred_raw_pull,yes,Data/consolidated_csvs/fred/raw/rates_US_2Y_Treasury_Yield.csv,205799,Included: original FRED CSV pull.
+Data/fred/rates_US_30Y_Treasury_Yield.csv,rates_US_30Y_Treasury_Yield.csv,fred_raw_pull,yes,Data/consolidated_csvs/fred/raw/rates_US_30Y_Treasury_Yield.csv,203211,Included: original FRED CSV pull.
+Data/fred/rates_US_3M_Treasury_Yield.csv,rates_US_3M_Treasury_Yield.csv,fred_raw_pull,yes,Data/consolidated_csvs/fred/raw/rates_US_3M_Treasury_Yield.csv,183625,Included: original FRED CSV pull.
+Data/fred/rates_US_5Y_Treasury_Yield.csv,rates_US_5Y_Treasury_Yield.csv,fred_raw_pull,yes,Data/consolidated_csvs/fred/raw/rates_US_5Y_Treasury_Yield.csv,265033,Included: original FRED CSV pull.
+Data/fred/rates_YieldCurve_10Y_minus_2Y_Spread.csv,rates_YieldCurve_10Y_minus_2Y_Spread.csv,fred_raw_pull,yes,Data/consolidated_csvs/fred/raw/rates_YieldCurve_10Y_minus_2Y_Spread.csv,206767,Included: original FRED CSV pull.
+Data/fred/rates_YieldCurve_10Y_minus_3M_Spread.csv,rates_YieldCurve_10Y_minus_3M_Spread.csv,fred_raw_pull,yes,Data/consolidated_csvs/fred/raw/rates_YieldCurve_10Y_minus_3M_Spread.csv,182994,Included: original FRED CSV pull.
+Data/fred/recession_Hamilton_Recession_Probability.csv,recession_Hamilton_Recession_Probability.csv,fred_raw_pull,yes,Data/consolidated_csvs/fred/raw/recession_Hamilton_Recession_Probability.csv,3062,Included: original FRED CSV pull.
+Data/fred/recession_NBER_Recession_Indicator_Daily.csv,recession_NBER_Recession_Indicator_Daily.csv,fred_raw_pull,yes,Data/consolidated_csvs/fred/raw/recession_NBER_Recession_Indicator_Daily.csv,599515,Included: original FRED CSV pull.
+Data/fred/recession_NBER_Recession_Indicator_Monthly.csv,recession_NBER_Recession_Indicator_Monthly.csv,fred_raw_pull,yes,Data/consolidated_csvs/fred/raw/recession_NBER_Recession_Indicator_Monthly.csv,19743,Included: original FRED CSV pull.
+Data/fred/recession_Smoothed_Recession_Probability.csv,recession_Smoothed_Recession_Probability.csv,fred_raw_pull,yes,Data/consolidated_csvs/fred/raw/recession_Smoothed_Recession_Probability.csv,11304,Included: original FRED CSV pull.
+Data/master/master_prices_combined.csv,master_prices_combined.csv,combined_with_zion_excluded,no,,795833,Excluded: combined master table includes Zion columns.
+Data/master/_feature_manifest.csv,_feature_manifest.csv,derived_feature_excluded,no,,8404,"Excluded: engineered feature, label, stationarity, or evaluation table rather than pulled source data."
+Data/master/_stationarity_log.csv,_stationarity_log.csv,derived_feature_excluded,no,,2633,"Excluded: engineered feature, label, stationarity, or evaluation table rather than pulled source data."
+Data/master/features/_feature_manifest.csv,_feature_manifest.csv,derived_feature_excluded,no,,1305,"Excluded: engineered feature, label, stationarity, or evaluation table rather than pulled source data."
+Data/master/features/_stationarity_log.csv,_stationarity_log.csv,derived_feature_excluded,no,,1234,"Excluded: engineered feature, label, stationarity, or evaluation table rather than pulled source data."
+Data/master/features/master_features_rolling.csv,master_features_rolling.csv,derived_feature_excluded,no,,2124494,"Excluded: engineered feature, label, stationarity, or evaluation table rather than pulled source data."
+Data/master/features/saa_proxy_returns.csv,saa_proxy_returns.csv,derived_feature_excluded,no,,214937,"Excluded: engineered feature, label, stationarity, or evaluation table rather than pulled source data."
+Data/master/features/saa_weights_for_labels.csv,saa_weights_for_labels.csv,derived_feature_excluded,no,,543945,"Excluded: engineered feature, label, stationarity, or evaluation table rather than pulled source data."
+Data/master/master_features.csv,master_features.csv,derived_feature_excluded,no,,4072976,"Excluded: engineered feature, label, stationarity, or evaluation table rather than pulled source data."
+Data/master/master_features_rolling.csv,master_features_rolling.csv,derived_feature_excluded,no,,2124494,"Excluded: engineered feature, label, stationarity, or evaluation table rather than pulled source data."
+Data/master/master_labels.csv,master_labels.csv,derived_feature_excluded,no,,110912,"Excluded: engineered feature, label, stationarity, or evaluation table rather than pulled source data."
+Data/master/table_00_final_performance_vs_saa.csv,table_00_final_performance_vs_saa.csv,derived_feature_excluded,no,,408,"Excluded: engineered feature, label, stationarity, or evaluation table rather than pulled source data."
+Data/master/charts/chart01_cumulative_performance.csv,chart01_cumulative_performance.csv,generated_output_excluded,no,,7532,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/charts/chart02_drawdown_series.csv,chart02_drawdown_series.csv,generated_output_excluded,no,,187763,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/charts/chart03_walkforward_folds.csv,chart03_walkforward_folds.csv,generated_output_excluded,no,,443,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/charts/chart04_signal_timeline.csv,chart04_signal_timeline.csv,generated_output_excluded,no,,2025,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/charts/chart05_coefficient_stability.csv,chart05_coefficient_stability.csv,generated_output_excluded,no,,11164,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/charts/chart06_mc_drawdown_distribution.csv,chart06_mc_drawdown_distribution.csv,generated_output_excluded,no,,1235,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/charts/chart07_markov_vs_lr.csv,chart07_markov_vs_lr.csv,generated_output_excluded,no,,6602,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/charts/chart08_fold_metrics.csv,chart08_fold_metrics.csv,generated_output_excluded,no,,491,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/montecarlo/mc_chart_data.csv,mc_chart_data.csv,generated_output_excluded,no,,2154724,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/montecarlo/mc_results.csv,mc_results.csv,generated_output_excluded,no,,129692,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/montecarlo/mc_results_phase4.csv,mc_results_phase4.csv,generated_output_excluded,no,,128742,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/montecarlo/mc_significance.csv,mc_significance.csv,generated_output_excluded,no,,316,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/montecarlo/mc_summary_tables.csv,mc_summary_tables.csv,generated_output_excluded,no,,1661,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/portfolio/_constraint_log.csv,_constraint_log.csv,generated_output_excluded,no,,509397,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/portfolio/_constraint_log_252d_cvar.csv,_constraint_log_252d_cvar.csv,generated_output_excluded,no,,305231,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/portfolio/_constraint_log_252d_fixed.csv,_constraint_log_252d_fixed.csv,generated_output_excluded,no,,341509,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/portfolio/_constraint_log_756d_cvar.csv,_constraint_log_756d_cvar.csv,generated_output_excluded,no,,312542,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/portfolio/_constraint_log_756d_fixed.csv,_constraint_log_756d_fixed.csv,generated_output_excluded,no,,348247,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/portfolio/_cost_log.csv,_cost_log.csv,generated_output_excluded,no,,55504,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/portfolio/_cost_log_252d_cvar.csv,_cost_log_252d_cvar.csv,generated_output_excluded,no,,50312,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/portfolio/_cost_log_252d_fixed.csv,_cost_log_252d_fixed.csv,generated_output_excluded,no,,44674,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/portfolio/_cost_log_756d_cvar.csv,_cost_log_756d_cvar.csv,generated_output_excluded,no,,48061,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/portfolio/_cost_log_756d_fixed.csv,_cost_log_756d_fixed.csv,generated_output_excluded,no,,43437,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/portfolio/_gmm_regime_log.csv,_gmm_regime_log.csv,generated_output_excluded,no,,93263,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/portfolio/_gmm_regime_stats.csv,_gmm_regime_stats.csv,generated_output_excluded,no,,237,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/portfolio/_optimizer_failures.csv,_optimizer_failures.csv,generated_output_excluded,no,,1,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/portfolio/_path3_patch_log.csv,_path3_patch_log.csv,generated_output_excluded,no,,211346,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/portfolio/_tier_log.csv,_tier_log.csv,generated_output_excluded,no,,573338,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/portfolio/fold_metrics.csv,fold_metrics.csv,generated_output_excluded,no,,658,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/portfolio/fold_metrics_252d_cvar.csv,fold_metrics_252d_cvar.csv,generated_output_excluded,no,,657,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/portfolio/fold_metrics_252d_fixed.csv,fold_metrics_252d_fixed.csv,generated_output_excluded,no,,656,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/portfolio/fold_metrics_756d_cvar.csv,fold_metrics_756d_cvar.csv,generated_output_excluded,no,,661,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/portfolio/fold_metrics_756d_fixed.csv,fold_metrics_756d_fixed.csv,generated_output_excluded,no,,657,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/portfolio/full_period_metrics.csv,full_period_metrics.csv,generated_output_excluded,no,,202,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/portfolio/portfolio_returns.csv,portfolio_returns.csv,generated_output_excluded,no,,269619,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/portfolio/portfolio_returns_252d_cvar.csv,portfolio_returns_252d_cvar.csv,generated_output_excluded,no,,269619,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/portfolio/portfolio_returns_252d_fixed.csv,portfolio_returns_252d_fixed.csv,generated_output_excluded,no,,269537,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/portfolio/portfolio_returns_756d_cvar.csv,portfolio_returns_756d_cvar.csv,generated_output_excluded,no,,269794,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/portfolio/portfolio_returns_756d_fixed.csv,portfolio_returns_756d_fixed.csv,generated_output_excluded,no,,269616,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/portfolio/portfolio_weights.csv,portfolio_weights.csv,generated_output_excluded,no,,860494,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/portfolio/portfolio_weights_252d_cvar.csv,portfolio_weights_252d_cvar.csv,generated_output_excluded,no,,860494,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/portfolio/portfolio_weights_252d_fixed.csv,portfolio_weights_252d_fixed.csv,generated_output_excluded,no,,910922,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/portfolio/portfolio_weights_756d_cvar.csv,portfolio_weights_756d_cvar.csv,generated_output_excluded,no,,872148,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/portfolio/portfolio_weights_756d_fixed.csv,portfolio_weights_756d_fixed.csv,generated_output_excluded,no,,914533,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/portfolio/rebalance_log.csv,rebalance_log.csv,generated_output_excluded,no,,53777,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/portfolio/rebalance_log_252d_cvar.csv,rebalance_log_252d_cvar.csv,generated_output_excluded,no,,32588,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/portfolio/rebalance_log_252d_fixed.csv,rebalance_log_252d_fixed.csv,generated_output_excluded,no,,28620,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/portfolio/rebalance_log_756d_cvar.csv,rebalance_log_756d_cvar.csv,generated_output_excluded,no,,31351,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/portfolio/rebalance_log_756d_fixed.csv,rebalance_log_756d_fixed.csv,generated_output_excluded,no,,27842,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/portfolio/saa_returns.csv,saa_returns.csv,generated_output_excluded,no,,269104,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/portfolio/saa_returns_252d_cvar.csv,saa_returns_252d_cvar.csv,generated_output_excluded,no,,269104,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/portfolio/saa_returns_252d_fixed.csv,saa_returns_252d_fixed.csv,generated_output_excluded,no,,269104,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/portfolio/saa_returns_756d_cvar.csv,saa_returns_756d_cvar.csv,generated_output_excluded,no,,269248,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/portfolio/saa_returns_756d_fixed.csv,saa_returns_756d_fixed.csv,generated_output_excluded,no,,269248,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/portfolio/saa_weights.csv,saa_weights.csv,generated_output_excluded,no,,375830,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/portfolio/taa_returns.csv,taa_returns.csv,generated_output_excluded,no,,267465,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/report/tables/table_00_final_performance_vs_saa.csv,table_00_final_performance_vs_saa.csv,generated_output_excluded,no,,408,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/report/tables/table_01_full_period_evaluation.csv,table_01_full_period_evaluation.csv,generated_output_excluded,no,,408,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/report/tables/table_02_fold_results.csv,table_02_fold_results.csv,generated_output_excluded,no,,935,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/report/tables/table_03_trial_log.csv,table_03_trial_log.csv,generated_output_excluded,no,,417109,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/report/tables/table_04_ips_compliance.csv,table_04_ips_compliance.csv,generated_output_excluded,no,,94,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/results/annual_returns.csv,annual_returns.csv,generated_output_excluded,no,,1360,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/results/comparison_runs.csv,comparison_runs.csv,generated_output_excluded,no,,1190,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/results/cov_window_comparison.csv,cov_window_comparison.csv,generated_output_excluded,no,,260,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/results/mc_results.csv,mc_results.csv,generated_output_excluded,no,,129692,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/results/mc_significance.csv,mc_significance.csv,generated_output_excluded,no,,316,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/results/performance_summary.csv,performance_summary.csv,generated_output_excluded,no,,867,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/results/performance_summary_full.csv,performance_summary_full.csv,generated_output_excluded,no,,2898,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/results/weight_method_comparison.csv,weight_method_comparison.csv,generated_output_excluded,no,,259,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/signals/_coefficient_stability.csv,_coefficient_stability.csv,generated_output_excluded,no,,1249,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/signals/_fold_metrics.csv,_fold_metrics.csv,generated_output_excluded,no,,5208,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/signals/_fold_metrics_annual.csv,_fold_metrics_annual.csv,generated_output_excluded,no,,5335,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/signals/_fold_metrics_annual_groups.csv,_fold_metrics_annual_groups.csv,generated_output_excluded,no,,935,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/signals/_fold_metrics_phaseF.csv,_fold_metrics_phaseF.csv,generated_output_excluded,no,,5208,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/signals/_knn_permutation_importance.csv,_knn_permutation_importance.csv,generated_output_excluded,no,,2495,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/signals/_label_thresholds.csv,_label_thresholds.csv,generated_output_excluded,no,,102,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/signals/_removed_features.csv,_removed_features.csv,generated_output_excluded,no,,6758,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/signals/_roc_data.csv,_roc_data.csv,generated_output_excluded,no,,19423,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/signals/_stable_features.csv,_stable_features.csv,generated_output_excluded,no,,1117,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/signals/_threshold_sweep.csv,_threshold_sweep.csv,generated_output_excluded,no,,4321,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/signals/_trial_log.csv,_trial_log.csv,generated_output_excluded,no,,747162,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/signals/fold_1_signals.csv,fold_1_signals.csv,generated_output_excluded,no,,43681,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/signals/fold_2_signals.csv,fold_2_signals.csv,generated_output_excluded,no,,58386,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/signals/fold_3_signals.csv,fold_3_signals.csv,generated_output_excluded,no,,43389,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/signals/fold_4_signals.csv,fold_4_signals.csv,generated_output_excluded,no,,43219,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/signals/markov_regime_probs.csv,markov_regime_probs.csv,generated_output_excluded,no,,251918,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/signals/markov_vs_lr_comparison.csv,markov_vs_lr_comparison.csv,generated_output_excluded,no,,1081,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/signals/master_labels.csv,master_labels.csv,generated_output_excluded,no,,110912,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/signals/master_signals.csv,master_signals.csv,generated_output_excluded,no,,372549,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/signals/regime_labels.csv,regime_labels.csv,generated_output_excluded,no,,130753,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/signals/score_signal.csv,score_signal.csv,generated_output_excluded,no,,351466,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/signals/signal_probabilities.csv,signal_probabilities.csv,generated_output_excluded,no,,372549,"Excluded: generated output, chart export, report table, or portfolio/result artifact."
+Data/master/zion_log_returns.csv,zion_log_returns.csv,zion_excluded,no,,836941,Excluded: Zion data was explicitly not needed for the new assignment.
+Data/master/zion_prices.csv,zion_prices.csv,zion_excluded,no,,347989,Excluded: Zion data was explicitly not needed for the new assignment.
+Data/zion/currency_jpy_total_return.csv,currency_jpy_total_return.csv,zion_excluded,no,,780812,Excluded: Zion data was explicitly not needed for the new assignment.
+Data/zion/digital_assets_total_return.csv,digital_assets_total_return.csv,zion_excluded,no,,317014,Excluded: Zion data was explicitly not needed for the new assignment.
+Data/zion/precious_metals_total_return.csv,precious_metals_total_return.csv,zion_excluded,no,,750719,Excluded: Zion data was explicitly not needed for the new assignment.
+Data/zion/us_aggregate_bond_total_return.csv,us_aggregate_bond_total_return.csv,zion_excluded,no,,622952,Excluded: Zion data was explicitly not needed for the new assignment.
+Data/zion/us_equity_total_return.csv,us_equity_total_return.csv,zion_excluded,no,,563601,Excluded: Zion data was explicitly not needed for the new assignment.
+Data/zion/us_real_estate_total_return.csv,us_real_estate_total_return.csv,zion_excluded,no,,387403,Excluded: Zion data was explicitly not needed for the new assignment.

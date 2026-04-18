@@ -1,0 +1,33 @@
+Column_Name,Full_Name,Asset_Class,Sub_Category,Currency,Frequency
+AUD,Australian Dollar Spot (AUD/USD),FX,G10 Currency,USD,Daily
+CAD,Canadian Dollar Spot (CAD/USD),FX,G10 Currency,USD,Daily
+CHF_FRANC,Swiss Franc Spot (CHF/USD),FX,G10 Currency,USD,Daily
+EURO,Euro Spot (EUR/USD),FX,G10 Currency,USD,Daily
+GBP_POUND,British Pound Spot (GBP/USD),FX,G10 Currency,USD,Daily
+CNY,Chinese Yuan Renminbi Spot (CNY/USD),FX,EM Currency (Asia),USD,Daily
+SHEKEL,Israeli Shekel Spot (ILS/USD),FX,EM Currency (MENA),USD,Daily
+USDJPY,US Dollar / Japanese Yen Spot,FX,G10 Currency (Inverse),JPY,Daily
+NIKKEI225,Nikkei 225 Stock Average (Japan),Equities,Developed Market Index,USD,Daily
+FTSE100,FTSE 100 Index (UK),Equities,Developed Market Index,USD,Daily
+SPXT,S&P 500 Total Return Index,Equities,Developed Market Index (US),USD,Daily
+CSI300_CHINA,CSI 300 Index (China A-shares),Equities,Emerging Market Index,USD,Daily
+TA-125_ISRAEL,Tel Aviv 125 Index (Israel),Equities,Emerging Market Index,USD,Daily
+LBUSTRUU,Bloomberg US Treasury Total Return Index,Fixed Income,Sovereign (US Nominal),USD,Daily
+BROAD_TIPS,Bloomberg US Treasury Inflation-Linked Bonds Total Return Index,Fixed Income,Inflation-Linked (US),USD,Daily
+0_5Y_TIPS,Bloomberg US Treasury TIPS 0-5Y Total Return Index,Fixed Income,Inflation-Linked (US),USD,Daily
+BAIGTRUU_ASIACREDIT,Bloomberg Asia USD Investment Grade Credit Total Return Index,Fixed Income,Credit (Asia IG),USD,Daily
+BCEE1T_EUROAREA,Bloomberg Euro Aggregate Treasury 1-3Y Total Return Index,Fixed Income,Sovereign (Euro Area),EUR,Daily
+I02923JP_JAPAN_BOND,Bloomberg Japan Treasury Bond Index,Fixed Income,Sovereign (Japan),JPY,Daily
+LBEATREU_EUROBONDAGG,Bloomberg Euro Aggregate Bond Total Return Index,Fixed Income,Aggregate (Euro Area),EUR,Daily
+COFFEE_FUT,Coffee C Front-Month Generic Futures (ICE),Commodities,Softs,USd,Daily
+COCOAINDEXSPOT,S&P GSCI Cocoa Index Spot,Commodities,Softs (Index),USD,Daily
+COTTON_FUT,Cotton #2 Front-Month Generic Futures (ICE),Commodities,Softs,USd,Daily
+WHEAT_SPOT,S&P GSCI Wheat Index Spot,Commodities,Grains (Index),USD,Daily
+SOYBEAN_FUT,Soybean Front-Month Generic Futures (CBOT),Commodities,Grains,USd,Daily
+COPPERSPOT,LME Copper Cash Spot,Commodities,Industrial Metals,USD,Daily
+SILVER_FUT,Silver Spot (XAG/USD),Commodities,Precious Metals,USD,Daily
+XAU,Gold Spot (XAU/USD),Commodities,Precious Metals,USD,Daily
+NATURALGAS,Henry Hub Natural Gas Front-Month Generic Futures (NYMEX),Commodities,Energy,USD,Daily
+B3REITT,Bloomberg US REIT Total Return Index,Real Estate,US REITs,USD,Daily
+BITCOIN,Bitcoin Spot (BTC/USD),Crypto,Digital Asset,USD,Daily
+ETHEREUM,Ethereum Spot (ETH/USD),Crypto,Digital Asset,USD,Daily

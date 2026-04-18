@@ -1,0 +1,42 @@
+column_name,description,start_date,end_date,frequency,measurement,sector,currency,notes
+0_5Y_TIPS,Bloomberg US Treasury TIPS 0-5Y Total Return Index,2010-05-31,2026-04-14,Daily,Index level,Fixed Income,USD,Inflation-Linked (US)
+AUD,Australian Dollar Spot (AUD/USD),1980-12-31,2026-04-15,Daily,FX spot rate,FX,USD,G10 Currency
+B3REITT,Bloomberg US REIT Total Return Index,2003-03-31,2026-03-18,Daily,Index level,Real Estate,USD,US REITs
+B3REITT_VOL,Bloomberg US REIT Total Return Index trading volume,2003-03-31,2026-03-18,Daily,Trading volume,Real Estate volume,USD,Volume companion column in whitmore_daily.csv
+BAIGTRUU_ASIACREDIT,Bloomberg Asia USD Investment Grade Credit Total Return Index,2014-05-22,2026-04-14,Daily,Index level,Fixed Income,USD,Credit (Asia IG)
+BCEE1T_EUROAREA,Bloomberg Euro Aggregate Treasury 1-3Y Total Return Index,2000-01-03,2026-04-14,Daily,Index level,Fixed Income,EUR,Sovereign (Euro Area)
+BITCOIN,Bitcoin Spot (BTC/USD),2010-07-19,2026-03-19,Daily,Price level,Crypto,USD,Digital Asset
+BROAD_TIPS,Bloomberg US Treasury Inflation-Linked Bonds Total Return Index,1998-03-31,2026-04-14,Daily,Index level,Fixed Income,USD,Inflation-Linked (US)
+CAD,Canadian Dollar Spot (CAD/USD),1980-12-31,2026-04-15,Daily,FX spot rate,FX,USD,G10 Currency
+CHF_FRANC,Swiss Franc Spot (CHF/USD),1980-12-31,2026-04-15,Daily,FX spot rate,FX,USD,G10 Currency
+CNY,Chinese Yuan Renminbi Spot (CNY/USD),1981-01-02,2026-04-15,Daily,FX spot rate,FX,USD,EM Currency (Asia)
+COCOAINDEXSPOT,S&P GSCI Cocoa Index Spot,1984-01-06,2026-04-14,Daily,Price level,Commodities,USD,Softs (Index)
+COFFEE_FUT,Coffee C Front-Month Generic Futures (ICE),1979-12-31,2026-04-14,Daily,Level,Commodities,USd,Softs
+COFFEE_FUT_VOL,Coffee C Front-Month Generic Futures (ICE) trading volume,1989-07-13,2026-04-15,Daily,Trading volume,Commodities volume,USd,Volume companion column in whitmore_daily.csv
+COPPERSPOT,LME Copper Cash Spot,1986-04-01,2026-04-14,Daily,Price level,Commodities,USD,Industrial Metals
+COPPERSPOT_VOL,LME Copper Cash Spot trading volume,2005-07-07,2026-04-14,Daily,Trading volume,Commodities volume,USD,Volume companion column in whitmore_daily.csv
+COTTON_FUT,Cotton #2 Front-Month Generic Futures (ICE),1979-12-31,2026-04-15,Daily,Level,Commodities,USd,Softs
+COTTON_FUT_VOL,Cotton #2 Front-Month Generic Futures (ICE) trading volume,1989-12-07,2026-04-15,Daily,Trading volume,Commodities volume,USd,Volume companion column in whitmore_daily.csv
+CSI300_CHINA,CSI 300 Index (China A-shares),2002-01-04,2026-04-14,Daily,Index / level,Equities,USD,Emerging Market Index
+ETHEREUM,Ethereum Spot (ETH/USD),2018-02-08,2026-04-15,Daily,Price level,Crypto,USD,Digital Asset
+EURO,Euro Spot (EUR/USD),1998-12-31,2026-04-15,Daily,FX spot rate,FX,USD,G10 Currency
+FTSE100,FTSE 100 Index (UK),1983-12-30,2026-04-14,Daily,Index / level,Equities,USD,Developed Market Index
+FTSE100_VOL,FTSE 100 Index (UK) trading volume,2002-02-04,2026-04-14,Daily,Trading volume,Equities volume,USD,Volume companion column in whitmore_daily.csv
+GBP_POUND,British Pound Spot (GBP/USD),1980-12-31,2026-04-15,Daily,FX spot rate,FX,USD,G10 Currency
+I02923JP_JAPAN_BOND,Bloomberg Japan Treasury Bond Index,2000-07-03,2026-04-14,Daily,Price / index level,Fixed Income,JPY,Sovereign (Japan)
+LBEATREU_EUROBONDAGG,Bloomberg Euro Aggregate Bond Total Return Index,1998-07-31,2026-04-14,Daily,Index level,Fixed Income,EUR,Aggregate (Euro Area)
+LBUSTRUU,Bloomberg US Treasury Total Return Index,1988-12-30,2026-03-18,Daily,Index level,Fixed Income,USD,Sovereign (US Nominal)
+NATURALGAS,Henry Hub Natural Gas Front-Month Generic Futures (NYMEX),1990-04-03,2026-04-15,Daily,Level,Commodities,USD,Energy
+NATURALGAS_VOL,Henry Hub Natural Gas Front-Month Generic Futures (NYMEX) trading volume,1990-04-03,2026-04-15,Daily,Trading volume,Commodities volume,USD,Volume companion column in whitmore_daily.csv
+NIKKEI225,Nikkei 225 Stock Average (Japan),1980-12-26,2026-04-14,Daily,Level,Equities,USD,Developed Market Index
+NIKKEI225_VOL,Nikkei 225 Stock Average (Japan) trading volume,2004-01-05,2026-04-14,Daily,Trading volume,Equities volume,USD,Volume companion column in whitmore_daily.csv
+SHEKEL,Israeli Shekel Spot (ILS/USD),1981-04-13,2026-04-14,Daily,FX spot rate,FX,USD,EM Currency (MENA)
+SILVER_FUT,Silver Spot (XAG/USD),1979-12-31,2026-04-15,Daily,Price level,Commodities,USD,Precious Metals
+SOYBEAN_FUT,Soybean Front-Month Generic Futures (CBOT),1979-12-31,2026-04-15,Daily,Level,Commodities,USd,Grains
+SOYBEAN_FUT_VOL,Soybean Front-Month Generic Futures (CBOT) trading volume,1979-12-31,2026-04-15,Daily,Trading volume,Commodities volume,USd,Volume companion column in whitmore_daily.csv
+SPXT,S&P 500 Total Return Index,1989-09-11,2026-03-18,Daily,Index level,Equities,USD,Developed Market Index (US)
+SPXT_VOL,S&P 500 Total Return Index trading volume,1990-01-31,2026-03-18,Daily,Trading volume,Equities volume,USD,Volume companion column in whitmore_daily.csv
+TA-125_ISRAEL,Tel Aviv 125 Index (Israel),1991-12-31,2026-04-14,Daily,Index / level,Equities,USD,Emerging Market Index
+USDJPY,US Dollar / Japanese Yen Spot,1976-01-01,2026-03-19,Daily,FX spot rate,FX,JPY,G10 Currency (Inverse)
+WHEAT_SPOT,S&P GSCI Wheat Index Spot,1979-12-31,2026-04-14,Daily,Price level,Commodities,USD,Grains (Index)
+XAU,Gold Spot (XAU/USD),1976-01-02,2026-03-19,Daily,Price level,Commodities,USD,Precious Metals

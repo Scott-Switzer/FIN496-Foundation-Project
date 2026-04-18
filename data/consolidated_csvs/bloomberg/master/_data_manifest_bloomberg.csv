@@ -1,0 +1,23 @@
+series_name,description,series_type,source,filename,data_start,data_end,n_observations,pct_valid,pub_lag_days,log_return_computed
+BCOM,Bloomberg Commodity Index — broad commodity regime,price_index,Bloomberg,bloomberg_commodity_index_d_1969.xlsx,1990-01-02,2026-04-07,9132,100.0,0,True
+US_2Y_TREAS,US 2-Year Treasury — rates signal,yield_or_price,Bloomberg,2_year_treasury_index_PX_1990_D.xlsx,1990-01-02,2026-04-07,9132,100.0,0,False
+EM_AGG_USD,Bloomberg EM Aggregate USD Index — EM credit stress,price_index,Bloomberg,Bloomberg_em_usd_ag_1993_d.xlsx,1993-01-29,2026-04-07,8353,91.46955759964959,0,True
+US_BOND_TR,Bloomberg US Aggregate Bond Total Return (LBUSTRUU),price_index,Bloomberg,Bloomberg_US_ag_bond_total_return_1776_d.xlsx,1990-01-02,2026-04-07,9132,100.0,0,True
+HY_TR,Bloomberg US HY Total Return (LUACTRUU) — credit momentum,price_index,Bloomberg,Bloomberg_us_hy_total_return_1983_d.xlsx,1990-01-02,2026-04-07,9132,100.0,0,True
+IG_CORP_TR,Bloomberg US IG Corporate Total Return (LCCTRUU),price_index,Bloomberg,Bloomberg_us_ig_corporate_total_return_1980_d.xlsx,1990-01-02,2026-04-07,9132,100.0,0,True
+SKEW,CBOE SKEW Index — tail risk pricing in options market,index_level,Bloomberg,cboe_skew_index_1990_d.xlsx,1990-01-02,2026-04-07,9132,100.0,0,False
+VIX,CBOE VIX — equity fear gauge,index_level,Bloomberg,VIX daily price (1).xlsx,1993-04-01,2026-04-07,8310,90.99868593955321,0,False
+VVIX,"CBOE VVIX — vol of vol, early warning signal",index_level,Bloomberg,vvix_2206_d_P_V.xlsx,2006-03-06,2026-04-07,5054,55.343845816907574,0,False
+MOVE,ICE BofA MOVE Index — bond market volatility,index_level,Bloomberg,move_index_1988_d.xlsx,1990-01-02,2026-04-07,9132,100.0,0,False
+PUT_CALL,CBOE Put/Call Ratio — options market sentiment,ratio,Bloomberg,PCUSEQTR_put_call_ratio (1).xlsx,1997-01-08,2026-04-07,7357,80.562855891371,0,False
+CDX_HY_5Y,CDX NA HY 5Y CDS Index — fastest credit stress signal,spread_bps,Bloomberg,cdx_na_hy_5y_cds_index_1989_d.xlsx,2011-09-09,2026-04-07,3664,40.12264564169952,0,False
+CDX_IG_5Y,CDX NA IG 5Y CDS Index — IG credit stress,spread_bps,Bloomberg,CDX_NA_IG_%Y_CDS_INDEX_2011_d.xlsx,2011-09-09,2026-04-07,3664,40.12264564169952,0,False
+HY_OAS,Corporate HY Option-Adjusted Spread — credit risk premium,spread_bps,Bloomberg,Corporate High Yield OAS (1).xlsx,1994-01-31,2026-04-07,8099,88.68812965396408,0,False
+MSCI_EAFE,MSCI EAFE Total Return Index — foreign developed equity (TAA safe haven),price_index,Bloomberg,MXEA_index_D.xlsx,1990-01-02,2026-04-07,9132,100.0,0,True
+SPY_EPS,S&P 500 / SPY Forward EPS — earnings growth signal,fundamental,Bloomberg,spy_eps_1970_d.xlsx,1990-01-02,2026-04-07,8818,96.56154183092423,45,False
+SPY_PE,S&P 500 / SPY Forward P/E — valuation signal,fundamental,Bloomberg,Spy_pe_D_1990.xlsx,1991-03-04,2026-04-07,8837,96.76960140166447,45,False
+IGOV,iShares International Treasury Bond ETF — foreign sovereign bond safe haven,price_equity,Bloomberg,igov_etf_d.xlsx,2009-01-29,2026-04-07,4323,47.339027595269386,0,True
+OIL,WTI Crude Oil Price (CO1 Comdty) — TAA commodity diversifier,price_commodity,Bloomberg,oil_price_d_1988.xlsx,1990-01-02,2026-04-07,9112,99.78098992553657,0,True
+UNEMP,US Unemployment Rate — labour market stress,macro_pct,Bloomberg,unemploymen_2006_m.xlsx,2007-11-30,2026-04-07,4615,50.536574682435386,21,False
+ECO_SURPRISE,Bloomberg US Economic Surprise Index (ECSURPUS),index_level,Bloomberg,us_economic_suprise_index_1990.xlsx,2000-01-05,2026-04-07,6602,72.2952255803767,1,False
+FCI,Bloomberg US Financial Conditions Index (BFCIUS),index_level,Bloomberg,US_financial conditions index_1990_d.xlsx,1990-01-03,2026-04-07,9131,99.98904949627683,1,False

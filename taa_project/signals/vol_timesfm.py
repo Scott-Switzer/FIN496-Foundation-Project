@@ -34,6 +34,7 @@ import pandas as pd
 DEFAULT_MAX_CONTEXT = 1024
 DEFAULT_MAX_HORIZON = 256
 DEFAULT_MIN_CONTEXT = 64
+DEFAULT_BATCH_SIZE = 1
 
 
 def timesfm_is_available() -> bool:
@@ -140,6 +141,7 @@ class TimesFMForecaster:
         series_dict: dict[str, pd.Series | np.ndarray],
         horizon: int = 21,
         min_context: int = DEFAULT_MIN_CONTEXT,
+        batch_size: int = DEFAULT_BATCH_SIZE,
     ) -> dict[str, dict[str, np.ndarray]]:
         """Forecast multiple asset return series in one TimesFM batch.
 
@@ -147,6 +149,9 @@ class TimesFMForecaster:
         - `series_dict`: mapping from ticker to historical return sequence.
         - `horizon`: forecast horizon in trading days.
         - `min_context`: minimum history length required to send a series.
+        - `batch_size`: number of assets per TimesFM call. The default is a
+          conservative CPU-safe chunk size used to avoid local Torch/OpenMP
+          instability on this desktop runtime.
 
         Outputs:
         - Mapping from ticker to forecast payload with `point` and `quantiles`.
@@ -172,14 +177,18 @@ class TimesFMForecaster:
         if not inputs:
             return {}
 
-        point_forecast, quantile_forecast = self.model.forecast(horizon=horizon, inputs=inputs)
-        return {
-            ticker: {
-                "point": np.asarray(point_forecast[index], dtype=float),
-                "quantiles": np.asarray(quantile_forecast[index], dtype=float),
-            }
-            for index, ticker in enumerate(valid_tickers)
-        }
+        safe_batch_size = max(int(batch_size), 1)
+        forecasts: dict[str, dict[str, np.ndarray]] = {}
+        for start in range(0, len(inputs), safe_batch_size):
+            batch_inputs = inputs[start : start + safe_batch_size]
+            batch_tickers = valid_tickers[start : start + safe_batch_size]
+            point_forecast, quantile_forecast = self.model.forecast(horizon=horizon, inputs=batch_inputs)
+            for index, ticker in enumerate(batch_tickers):
+                forecasts[ticker] = {
+                    "point": np.asarray(point_forecast[index], dtype=float),
+                    "quantiles": np.asarray(quantile_forecast[index], dtype=float),
+                }
+        return forecasts
 
     @staticmethod
     def expected_return(forecast: dict[str, np.ndarray], horizon_days: int = 21) -> float:

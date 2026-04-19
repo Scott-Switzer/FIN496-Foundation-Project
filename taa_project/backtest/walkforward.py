@@ -64,6 +64,7 @@ DEFAULT_EMBARGO_BUSINESS_DAYS = 21
 DEFAULT_COVARIANCE_LOOKBACK = 252
 DEFAULT_COVARIANCE_MIN_OBSERVATIONS = 63
 DIAGONAL_DEFAULT = 0.04
+TIMESFM_CACHE_DIR = OUTPUT_DIR / "timesfm_cache"
 
 WALKFORWARD_FOLDS_FILENAME = "walkforward_folds.csv"
 OOS_RETURNS_FILENAME = "oos_returns.csv"
@@ -307,6 +308,7 @@ def build_signal_bundle_at_date(
     returns: pd.DataFrame,
     use_timesfm: bool,
     forecaster: TimesFMForecaster | None,
+    timesfm_cache_dir: Path | None,
     hmm_model_cache: object | None,
     hmm_states: int,
 ) -> tuple[SignalBundle, object | None]:
@@ -321,6 +323,8 @@ def build_signal_bundle_at_date(
     - `returns`: audited asset log-return dataframe.
     - `use_timesfm`: whether to invoke the optional TimesFM layer.
     - `forecaster`: optional TimesFM forecaster instance.
+    - `timesfm_cache_dir`: optional shared cache directory for per-decision
+      TimesFM signals.
     - `hmm_model_cache`: previous fold-local HMM model, reused on refit failure.
     - `hmm_states`: number of HMM states.
 
@@ -364,7 +368,13 @@ def build_signal_bundle_at_date(
     momo = momo_signals.loc[:decision_date].iloc[-1].reindex(ALL_SAA).fillna(0.0)
 
     if use_timesfm and forecaster is not None:
-        timesfm_frame = compute_vol_and_direction_signals(returns, decision_date, forecaster, horizon=21)
+        timesfm_frame = compute_vol_and_direction_signals(
+            returns,
+            decision_date,
+            forecaster,
+            horizon=21,
+            cache_dir=timesfm_cache_dir,
+        )
         timesfm_mu = timesfm_frame.get("mu_ann", pd.Series(dtype=float)).reindex(ALL_SAA).fillna(0.0)
         timesfm_sigma = timesfm_frame.get("sigma_ann_fcst", pd.Series(dtype=float)).reindex(ALL_SAA)
         timesfm_dir = timesfm_frame.get("dir_score", pd.Series(dtype=float)).reindex(ALL_SAA).fillna(0.0)
@@ -471,6 +481,7 @@ def run_walkforward(
     vol_budget: float = TARGET_VOL,
     output_dir: Path = OUTPUT_DIR,
     ensemble_config: EnsembleConfig | None = None,
+    timesfm_cache_dir: Path | None = TIMESFM_CACHE_DIR,
 ) -> dict[str, pd.DataFrame]:
     """Run the full walk-forward OOS TAA backtest.
 
@@ -484,6 +495,8 @@ def run_walkforward(
     - `vol_budget`: internal ex-ante annualized volatility target.
     - `output_dir`: destination for generated CSV outputs.
     - `ensemble_config`: optional signal-ensemble configuration.
+    - `timesfm_cache_dir`: optional shared cache directory for per-decision
+      TimesFM signals.
 
     Outputs:
     - Dictionary containing exported dataframes:
@@ -571,6 +584,7 @@ def run_walkforward(
             returns=returns.loc[:, ALL_SAA],
             use_timesfm=timesfm_enabled,
             forecaster=forecaster,
+            timesfm_cache_dir=timesfm_cache_dir if timesfm_enabled else None,
             hmm_model_cache=current_hmm_model,
             hmm_states=hmm_states,
         )

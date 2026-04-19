@@ -27,6 +27,8 @@ Point-in-time safety:
 from __future__ import annotations
 
 import importlib.util
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 
@@ -270,6 +272,7 @@ def compute_vol_and_direction_signals(
     forecaster: TimesFMForecaster,
     horizon: int = 21,
     min_context: int = DEFAULT_MIN_CONTEXT,
+    cache_dir: Path | None = None,
 ) -> pd.DataFrame:
     """Compute TimesFM return, volatility, and direction signals at date `t`.
 
@@ -280,6 +283,8 @@ def compute_vol_and_direction_signals(
     - `forecaster`: initialized `TimesFMForecaster`.
     - `horizon`: forecast horizon in trading days.
     - `min_context`: minimum history length required for a forecast.
+    - `cache_dir`: optional directory for cached per-decision TimesFM signal
+      CSVs shared across repeated sweeps.
 
     Outputs:
     - Dataframe indexed by ticker with columns
@@ -294,6 +299,12 @@ def compute_vol_and_direction_signals(
     Point-in-time safety:
     - Safe. Each series is truncated to `decision_date` before the batch call.
     """
+
+    if cache_dir is not None:
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        cache_path = cache_dir / f"timesfm_signals_{pd.Timestamp(decision_date):%Y%m%d}_h{horizon}.csv"
+        if cache_path.exists():
+            return pd.read_csv(cache_path, index_col="ticker")
 
     truncated_histories: dict[str, pd.Series] = {}
     for column in returns.columns:
@@ -314,5 +325,9 @@ def compute_vol_and_direction_signals(
         )
 
     if not rows:
-        return pd.DataFrame(columns=["mu_ann", "sigma_ann_fcst", "dir_score"])
-    return pd.DataFrame(rows).set_index("ticker").sort_index()
+        frame = pd.DataFrame(columns=["mu_ann", "sigma_ann_fcst", "dir_score"])
+    else:
+        frame = pd.DataFrame(rows).set_index("ticker").sort_index()
+    if cache_dir is not None:
+        frame.to_csv(cache_path, index_label="ticker")
+    return frame

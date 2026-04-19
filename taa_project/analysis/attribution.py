@@ -237,11 +237,12 @@ def _run_signal_ablations(
             continue
 
         variant_output_dir = ablation_root / variant_id
+        variant_use_timesfm = use_timesfm and variant_id != "no_timesfm"
         artifacts = run_walkforward(
             start=start,
             end=end,
             folds=folds,
-            use_timesfm=use_timesfm,
+            use_timesfm=variant_use_timesfm,
             vol_budget=vol_budget,
             output_dir=variant_output_dir,
             ensemble_config=config,

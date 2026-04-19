@@ -154,6 +154,7 @@ def _append_pipeline_trial_row(
     folds: int,
     use_timesfm: bool,
     vol_budget: float,
+    output_dir: Path,
     metrics: pd.DataFrame,
 ) -> None:
     """Append one pipeline-run disclosure row to `TRIAL_LEDGER.csv`.
@@ -162,6 +163,7 @@ def _append_pipeline_trial_row(
     - `start`, `end`, `folds`: run configuration.
     - `use_timesfm`: whether TimesFM was enabled.
     - `vol_budget`: internal optimizer volatility target for this run.
+    - `output_dir`: run-specific output directory used to derive the `run_id`.
     - `metrics`: Task 8 portfolio-metrics dataframe.
 
     Outputs:
@@ -177,8 +179,9 @@ def _append_pipeline_trial_row(
     strategy_metrics = metrics.loc[metrics["portfolio"] == "SAA+TAA"]
     row_source = strategy_metrics.iloc[0] if not strategy_metrics.empty else pd.Series(dtype=float)
     timestamp_utc = datetime.now(timezone.utc).isoformat()
+    run_id = output_dir.parent.name if output_dir.parent.name else output_dir.name
     trial_id = (
-        f"pipeline_{timestamp_utc.replace(':', '').replace('-', '').replace('+00:00', 'Z')}"
+        f"{run_id}_{timestamp_utc.replace(':', '').replace('-', '').replace('+00:00', 'Z')}"
         f"_{'timesfm' if use_timesfm else 'no_timesfm'}_vb{int(round(vol_budget * 1000)):03d}"
     )
     new_row = pd.DataFrame(
@@ -197,7 +200,7 @@ def _append_pipeline_trial_row(
                 "sharpe": row_source.get("sharpe_rf_2pct", np.nan),
                 "sortino": row_source.get("sortino_rf_2pct", np.nan),
                 "calmar": row_source.get("calmar", np.nan),
-                "notes": "Pipeline run summary row for the SAA+TAA portfolio.",
+                "notes": f"Pipeline run summary row for the SAA+TAA portfolio. run_id={run_id}.",
             }
         ]
     )
@@ -403,6 +406,7 @@ def run_pipeline(
         folds=folds,
         use_timesfm=use_timesfm,
         vol_budget=vol_budget,
+        output_dir=output_dir,
         metrics=reporting_artifacts["metrics"],
     )
 

@@ -25,16 +25,19 @@ def test_run_pipeline_orchestrates_with_stubbed_dependencies(monkeypatch, tmp_pa
     def fake_run_walkforward(start, end, folds, use_timesfm, vol_budget, output_dir, ensemble_config=None):
         captured["walkforward_vol_budget"] = vol_budget
         captured["walkforward_regime_vol_budgets"] = None if ensemble_config is None else ensemble_config.vol_budget_by_regime
+        captured["walkforward_dd_guardrail"] = False if ensemble_config is None else ensemble_config.use_dd_guardrail
         return {"folds": pd.DataFrame(), "oos_returns": pd.DataFrame(), "oos_weights": pd.DataFrame(), "oos_regimes": pd.DataFrame()}
 
     def fake_build_attribution(start, end, folds, use_timesfm, vol_budget, output_dir, ensemble_config=None):
         captured["attribution_vol_budget"] = vol_budget
         captured["attribution_regime_vol_budgets"] = None if ensemble_config is None else ensemble_config.vol_budget_by_regime
+        captured["attribution_dd_guardrail"] = False if ensemble_config is None else ensemble_config.use_dd_guardrail
         return {"per_signal": pd.DataFrame()}
 
     def fake_build_reporting(start, end, folds, use_timesfm, vol_budget, output_dir, figure_dir, ensemble_config=None):
         captured["reporting_vol_budget"] = vol_budget
         captured["reporting_regime_vol_budgets"] = None if ensemble_config is None else ensemble_config.vol_budget_by_regime
+        captured["reporting_dd_guardrail"] = False if ensemble_config is None else ensemble_config.use_dd_guardrail
         return {
             "ips_compliance": pd.DataFrame(columns=["portfolio", "date", "rule", "value", "bound"]),
             "metrics": pd.DataFrame(
@@ -87,6 +90,7 @@ def test_run_pipeline_orchestrates_with_stubbed_dependencies(monkeypatch, tmp_pa
         use_timesfm=False,
         vol_budget=0.08,
         regime_vol_budgets={"risk_on": 0.10, "neutral": 0.08, "stress": 0.05},
+        use_dd_guardrail=True,
         output_dir=tmp_path / "outputs",
         figure_dir=tmp_path / "figures",
         report_dir=tmp_path / "reports",
@@ -103,6 +107,9 @@ def test_run_pipeline_orchestrates_with_stubbed_dependencies(monkeypatch, tmp_pa
     assert captured["walkforward_regime_vol_budgets"] == {"risk_on": 0.10, "neutral": 0.08, "stress": 0.05}
     assert captured["attribution_regime_vol_budgets"] == {"risk_on": 0.10, "neutral": 0.08, "stress": 0.05}
     assert captured["reporting_regime_vol_budgets"] == {"risk_on": 0.10, "neutral": 0.08, "stress": 0.05}
+    assert captured["walkforward_dd_guardrail"] is True
+    assert captured["attribution_dd_guardrail"] is True
+    assert captured["reporting_dd_guardrail"] is True
 
 
 def test_run_pipeline_raises_when_timesfm_requested_but_unavailable(monkeypatch, tmp_path) -> None:

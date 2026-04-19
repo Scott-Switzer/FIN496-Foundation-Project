@@ -302,6 +302,7 @@ def run_pipeline(
     use_timesfm: bool = False,
     vol_budget: float = TARGET_VOL,
     regime_vol_budgets: dict[str, float] | None = None,
+    use_dd_guardrail: bool = False,
     output_dir: Path = OUTPUT_DIR,
     figure_dir: Path = FIGURES_DIR,
     report_dir: Path = REPORT_DIR,
@@ -315,6 +316,7 @@ def run_pipeline(
     - `vol_budget`: internal ex-ante vol target passed into the TAA optimizer.
     - `regime_vol_budgets`: optional regime-specific vol targets that override
       the flat monthly budget by inferred HMM state.
+    - `use_dd_guardrail`: whether to enable the drawdown-clip overlay.
     - `output_dir`: destination directory for generated CSV artifacts.
     - `figure_dir`: destination directory for figure PNGs.
     - `report_dir`: destination directory for report/deck PDFs.
@@ -340,7 +342,7 @@ def run_pipeline(
     if regime_vol_budgets is not None:
         for regime_label, regime_budget in regime_vol_budgets.items():
             regime_vol_budgets[regime_label] = _validate_vol_budget(regime_budget)
-    ensemble_config = EnsembleConfig(vol_budget_by_regime=regime_vol_budgets)
+    ensemble_config = EnsembleConfig(vol_budget_by_regime=regime_vol_budgets, use_dd_guardrail=use_dd_guardrail)
 
     seed_everything(DEFAULT_RANDOM_SEED, seed_torch=use_timesfm)
     MPLCONFIG_DIR.mkdir(parents=True, exist_ok=True)
@@ -452,6 +454,8 @@ def main() -> None:
       optimizer.
     - `--regime-vol-budgets`: optional JSON mapping from regime label to
       regime-specific vol budget.
+    - `--dd-guardrail` / `--no-dd-guardrail`: enable or disable the
+      drawdown-clip overlay.
     - `--output-dir`, `--figure-dir`, `--report-dir`, `--notebook-dir`:
       artifact destinations.
 
@@ -486,6 +490,10 @@ def main() -> None:
         default=None,
         help='Optional JSON mapping such as {"risk_on":0.10,"neutral":0.08,"stress":0.05}.',
     )
+    guardrail_group = parser.add_mutually_exclusive_group()
+    guardrail_group.add_argument("--dd-guardrail", dest="use_dd_guardrail", action="store_true", help="Enable the drawdown-clip overlay.")
+    guardrail_group.add_argument("--no-dd-guardrail", dest="use_dd_guardrail", action="store_false", help="Disable the drawdown-clip overlay.")
+    parser.set_defaults(use_dd_guardrail=False)
     parser.add_argument("--output-dir", default=str(OUTPUT_DIR), help="Destination directory for CSV outputs.")
     parser.add_argument("--figure-dir", default=str(FIGURES_DIR), help="Destination directory for figure PNGs.")
     parser.add_argument("--report-dir", default=str(REPORT_DIR), help="Destination directory for report/deck PDFs.")
@@ -499,6 +507,7 @@ def main() -> None:
         use_timesfm=args.use_timesfm,
         vol_budget=args.vol_budget,
         regime_vol_budgets=_parse_regime_vol_budgets(args.regime_vol_budgets),
+        use_dd_guardrail=args.use_dd_guardrail,
         output_dir=Path(args.output_dir),
         figure_dir=Path(args.figure_dir),
         report_dir=Path(args.report_dir),

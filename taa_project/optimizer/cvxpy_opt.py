@@ -24,7 +24,7 @@ References:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
@@ -53,6 +53,7 @@ from taa_project.config import (
     TARGET_VOL,
     TAA_BANDS,
 )
+from taa_project.signals.dd_guardrail import DrawdownGuardrailConfig
 from taa_project.saa.build_saa import (
     SAAOptimizationInputs,
     bounds_for_assets as saa_bounds_for_assets,
@@ -82,6 +83,8 @@ class EnsembleConfig:
       applied to the corresponding raw signals.
     - `vol_budget_by_regime`: optional regime-specific volatility budgets used
       by the walk-forward engine to override the flat monthly vol target.
+    - `use_dd_guardrail`: whether the drawdown-clip overlay should be active.
+    - `dd_guardrail_config`: configuration for the drawdown-clip overlay.
 
     Outputs:
     - Immutable config consumed by `ensemble_score`.
@@ -101,6 +104,8 @@ class EnsembleConfig:
     trend_scale: float = 0.06
     momo_scale: float = 0.06
     vol_budget_by_regime: dict[str, float] | None = None
+    use_dd_guardrail: bool = False
+    dd_guardrail_config: DrawdownGuardrailConfig = field(default_factory=DrawdownGuardrailConfig)
 
 
 @dataclass(frozen=True)

@@ -40,6 +40,7 @@ from taa_project.optimizer.cvxpy_opt import (
     solve_taa_monthly_result,
 )
 from taa_project.signals import SignalBundle
+from taa_project.signals.dd_guardrail import dd_guardrail_multiplier, trailing_drawdown_series
 from taa_project.signals.momentum_adm import adm_score, cross_sectional_rank
 from taa_project.signals.regime_hmm import (
     MIN_TRAIN_OBSERVATIONS,
@@ -68,6 +69,7 @@ WALKFORWARD_FOLDS_FILENAME = "walkforward_folds.csv"
 OOS_RETURNS_FILENAME = "oos_returns.csv"
 OOS_WEIGHTS_FILENAME = "oos_weights.csv"
 OOS_REGIMES_FILENAME = "oos_regimes.csv"
+GUARDRAIL_SWITCHES_FILENAME = "guardrail_switches.csv"
 
 SLEEVE_BUCKETS = {
     "equity": ["SPXT", "FTSE100", "NIKKEI225", "CSI300_CHINA"],
@@ -485,7 +487,8 @@ def run_walkforward(
 
     Outputs:
     - Dictionary containing exported dataframes:
-      `folds`, `oos_returns`, `oos_weights`, `oos_regimes`.
+      `folds`, `oos_returns`, `oos_weights`, `oos_regimes`,
+      `guardrail_switches`.
 
     Citation:
     - López de Prado purged/embargoed CV overview:
@@ -550,6 +553,8 @@ def run_walkforward(
     weight_rows: list[pd.Series] = []
     regime_rows: list[dict[str, object]] = []
     return_frames: list[pd.DataFrame] = []
+    guardrail_switch_rows: list[dict[str, object]] = []
+    current_guardrail_multiplier = 1.0
 
     for index, decision_date in enumerate(decision_dates):
         fold_spec = fold_lookup[pd.Timestamp(decision_date)]
@@ -583,12 +588,29 @@ def run_walkforward(
             decision_date=pd.Timestamp(decision_date),
             timesfm_sigma=signal_bundle.timesfm_sigma,
         )
+        guardrail_multiplier = 1.0
+        if config.use_dd_guardrail and return_frames:
+            realized_history = pd.concat([frame["portfolio_return"] for frame in return_frames]).sort_index()
+            multiplier_history = dd_guardrail_multiplier(realized_history, config.dd_guardrail_config)
+            trailing_dd_history = trailing_drawdown_series(realized_history, config.dd_guardrail_config.lookback_days)
+            if not multiplier_history.empty:
+                guardrail_multiplier = float(multiplier_history.iloc[-1])
+                if guardrail_multiplier != current_guardrail_multiplier:
+                    guardrail_switch_rows.append(
+                        {
+                            "date": pd.Timestamp(decision_date),
+                            "trailing_dd": float(trailing_dd_history.iloc[-1]),
+                            "action": "tighten" if guardrail_multiplier < current_guardrail_multiplier else "release",
+                        }
+                    )
+                    current_guardrail_multiplier = guardrail_multiplier
         active_vol_budget = (
             config.vol_budget_by_regime[signal_bundle.regime_label]
             if config.vol_budget_by_regime is not None
             and signal_bundle.regime_label in config.vol_budget_by_regime
             else vol_budget
         )
+        active_vol_budget *= guardrail_multiplier
         solve_result = solve_taa_monthly_result(
             signal_score=signal_score,
             cov_matrix=covariance,
@@ -604,6 +626,7 @@ def run_walkforward(
         weight_row["turnover_cost"] = solve_result.turnover_cost
         weight_row["ex_ante_vol"] = solve_result.ex_ante_vol
         weight_row["active_vol_budget"] = active_vol_budget
+        weight_row["guardrail_multiplier"] = guardrail_multiplier
         weight_row["optimizer_status"] = solve_result.status
         weight_row["used_fallback"] = int(solve_result.used_fallback)
         weight_rows.append(weight_row)
@@ -618,6 +641,7 @@ def run_walkforward(
             "turnover_cost": solve_result.turnover_cost,
             "ex_ante_vol": solve_result.ex_ante_vol,
             "active_vol_budget": active_vol_budget,
+            "guardrail_multiplier": guardrail_multiplier,
         }
         regime_row.update(signal_bundle.regime_probs.to_dict())
         regime_rows.append(regime_row)
@@ -646,6 +670,7 @@ def run_walkforward(
     weights_df = pd.DataFrame(weight_rows)
     weights_df.index.name = "decision_date"
     regimes_df = pd.DataFrame(regime_rows).set_index("date")
+    guardrail_switches_df = pd.DataFrame(guardrail_switch_rows, columns=["date", "trailing_dd", "action"])
     oos_returns_df = pd.concat(return_frames).sort_index() if return_frames else pd.DataFrame(
         columns=["fold_id", "decision_date", "regime", "gross_return", "turnover_cost", "portfolio_return"]
     )
@@ -655,12 +680,14 @@ def run_walkforward(
     oos_returns_df.to_csv(output_dir / OOS_RETURNS_FILENAME)
     weights_df.to_csv(output_dir / OOS_WEIGHTS_FILENAME)
     regimes_df.to_csv(output_dir / OOS_REGIMES_FILENAME)
+    guardrail_switches_df.to_csv(output_dir / GUARDRAIL_SWITCHES_FILENAME, index=False)
 
     return {
         "folds": folds_df,
         "oos_returns": oos_returns_df,
         "oos_weights": weights_df,
         "oos_regimes": regimes_df,
+        "guardrail_switches": guardrail_switches_df,
     }
 
 
@@ -673,6 +700,8 @@ def main() -> None:
     - `--embargo-business-days`: fold embargo width.
     - `--timesfm`: enable the optional TimesFM layer.
     - `--vol-budget`: internal ex-ante annualized volatility target.
+    - `--dd-guardrail` / `--no-dd-guardrail`: enable or disable the
+      drawdown-clip overlay.
     - `--output-dir`: destination directory for CSV outputs.
 
     Outputs:
@@ -702,6 +731,10 @@ def main() -> None:
         default=TARGET_VOL,
         help="Internal ex-ante vol target used by the TAA optimizer (default 0.10).",
     )
+    guardrail_group = parser.add_mutually_exclusive_group()
+    guardrail_group.add_argument("--dd-guardrail", dest="dd_guardrail", action="store_true", help="Enable the drawdown-clip overlay.")
+    guardrail_group.add_argument("--no-dd-guardrail", dest="dd_guardrail", action="store_false", help="Disable the drawdown-clip overlay.")
+    parser.set_defaults(dd_guardrail=False)
     parser.add_argument("--output-dir", default=str(OUTPUT_DIR), help="Destination directory for generated CSV files.")
     args = parser.parse_args()
 
@@ -714,11 +747,13 @@ def main() -> None:
         use_timesfm=args.timesfm,
         vol_budget=args.vol_budget,
         output_dir=output_dir,
+        ensemble_config=EnsembleConfig(use_dd_guardrail=args.dd_guardrail),
     )
     print(
         "Walk-forward outputs written to "
         f"{output_dir / WALKFORWARD_FOLDS_FILENAME}, {output_dir / OOS_RETURNS_FILENAME}, "
-        f"{output_dir / OOS_WEIGHTS_FILENAME}, and {output_dir / OOS_REGIMES_FILENAME}. "
+        f"{output_dir / OOS_WEIGHTS_FILENAME}, {output_dir / OOS_REGIMES_FILENAME}, "
+        f"and {output_dir / GUARDRAIL_SWITCHES_FILENAME}. "
         f"OOS daily rows: {len(artifacts['oos_returns'])}"
     )
 

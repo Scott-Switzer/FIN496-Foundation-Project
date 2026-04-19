@@ -32,7 +32,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from taa_project.config import ALL_SAA, BM2_WEIGHTS, OUTPUT_DIR
+from taa_project.config import ALL_SAA, BM2_WEIGHTS, OUTPUT_DIR, TARGET_VOL, VOL_CEILING
 from taa_project.data_loader import availability_flag, load_fred, load_prices, log_returns
 from taa_project.optimizer.cvxpy_opt import (
     EnsembleConfig,
@@ -466,6 +466,7 @@ def run_walkforward(
     embargo_business_days: int = DEFAULT_EMBARGO_BUSINESS_DAYS,
     use_timesfm: bool = False,
     hmm_states: int = 3,
+    vol_budget: float = TARGET_VOL,
     output_dir: Path = OUTPUT_DIR,
     ensemble_config: EnsembleConfig | None = None,
 ) -> dict[str, pd.DataFrame]:
@@ -478,6 +479,7 @@ def run_walkforward(
       decision.
     - `use_timesfm`: whether to invoke the optional TimesFM layer.
     - `hmm_states`: HMM state count.
+    - `vol_budget`: internal ex-ante annualized volatility target.
     - `output_dir`: destination for generated CSV outputs.
     - `ensemble_config`: optional signal-ensemble configuration.
 
@@ -494,6 +496,17 @@ def run_walkforward(
     - Safe. The runner uses only causal signals, embargoed initial fold
       training windows, and realized returns after each decision date.
     """
+
+    if vol_budget > VOL_CEILING:
+        raise ValueError(
+            f"vol_budget={vol_budget:.4f} exceeds VOL_CEILING={VOL_CEILING:.4f}. "
+            "Use an internal target at or below the IPS volatility ceiling."
+        )
+    if vol_budget < 0.02:
+        raise ValueError(
+            f"vol_budget={vol_budget:.4f} is below 0.0200. "
+            "This is likely a typo; the backtest refuses to run with unrealistically tight budgets."
+        )
 
     prices = load_prices()
     fred = load_fred()
@@ -564,6 +577,7 @@ def run_walkforward(
             prev_weights=previous_weights,
             available=availability.loc[:decision_date].iloc[-1].reindex(ALL_SAA).fillna(0.0),
             as_of_date=pd.Timestamp(decision_date),
+            vol_budget=vol_budget,
         )
 
         weight_row = solve_result.weights.rename(pd.Timestamp(decision_date))
@@ -638,6 +652,7 @@ def main() -> None:
     - `--folds`: number of folds.
     - `--embargo-business-days`: fold embargo width.
     - `--timesfm`: enable the optional TimesFM layer.
+    - `--vol-budget`: internal ex-ante annualized volatility target.
     - `--output-dir`: destination directory for CSV outputs.
 
     Outputs:
@@ -661,6 +676,12 @@ def main() -> None:
         help="Embargo width between each fold's initial train sample and first test decision.",
     )
     parser.add_argument("--timesfm", action="store_true", help="Enable the optional TimesFM signal layer.")
+    parser.add_argument(
+        "--vol-budget",
+        type=float,
+        default=TARGET_VOL,
+        help="Internal ex-ante vol target used by the TAA optimizer (default 0.10).",
+    )
     parser.add_argument("--output-dir", default=str(OUTPUT_DIR), help="Destination directory for generated CSV files.")
     args = parser.parse_args()
 
@@ -671,6 +692,7 @@ def main() -> None:
         folds=args.folds,
         embargo_business_days=args.embargo_business_days,
         use_timesfm=args.timesfm,
+        vol_budget=args.vol_budget,
         output_dir=output_dir,
     )
     print(

@@ -440,12 +440,15 @@ def _load_attribution_outputs(
     end: str,
     folds: int,
     use_timesfm: bool,
+    vol_budget: float,
     output_dir: Path,
 ) -> dict[str, pd.DataFrame]:
     """Load attribution outputs, building them first when missing.
 
     Inputs:
     - `start`, `end`, `folds`, `use_timesfm`: attribution rerun settings.
+    - `vol_budget`: internal ex-ante annualized volatility target reused by
+      attribution reruns when outputs are missing.
     - `output_dir`: directory containing attribution artifacts.
 
     Outputs:
@@ -464,7 +467,14 @@ def _load_attribution_outputs(
         "per_signal": output_dir / "attribution_per_signal.csv",
     }
     if not all(path.exists() for path in required_paths.values()):
-        build_attribution(start=start, end=end, folds=folds, use_timesfm=use_timesfm, output_dir=output_dir)
+        build_attribution(
+            start=start,
+            end=end,
+            folds=folds,
+            use_timesfm=use_timesfm,
+            vol_budget=vol_budget,
+            output_dir=output_dir,
+        )
 
     return {
         "saa_vs_bm2": pd.read_csv(required_paths["saa_vs_bm2"]),
@@ -1182,6 +1192,7 @@ def build_reporting(
     end: str = "2025-12-31",
     folds: int = 5,
     use_timesfm: bool = False,
+    vol_budget: float = TARGET_VOL,
     output_dir: Path = OUTPUT_DIR,
     figure_dir: Path = FIGURES_DIR,
 ) -> dict[str, object]:
@@ -1191,6 +1202,8 @@ def build_reporting(
     - `start`, `end`, `folds`: walk-forward settings reused if attribution
       outputs are missing.
     - `use_timesfm`: whether the baseline run used TimesFM.
+    - `vol_budget`: internal ex-ante annualized volatility target reused by
+      attribution reruns when needed.
     - `output_dir`: destination directory for CSV artifacts.
     - `figure_dir`: destination directory for figure PNG files.
 
@@ -1212,7 +1225,14 @@ def build_reporting(
     REPORT_DIR.mkdir(parents=True, exist_ok=True)
 
     outputs = load_core_outputs(output_dir)
-    attribution = _load_attribution_outputs(start=start, end=end, folds=folds, use_timesfm=use_timesfm, output_dir=output_dir)
+    attribution = _load_attribution_outputs(
+        start=start,
+        end=end,
+        folds=folds,
+        use_timesfm=use_timesfm,
+        vol_budget=vol_budget,
+        output_dir=output_dir,
+    )
     panels = _build_strategy_panels(outputs, output_dir=output_dir)
     saa_method_comparison, _ = build_saa_method_comparison(output_dir=output_dir)
     trial_ledger, dsr_summary = _build_trial_ledger(
@@ -1236,7 +1256,18 @@ def build_reporting(
     regime_allocations.to_csv(output_dir / REGIME_ALLOCATION_FILENAME, index=False)
     compliance.to_csv(output_dir / IPS_COMPLIANCE_FILENAME, index=False)
     dsr_summary.to_csv(output_dir / DSR_SUMMARY_FILENAME, index=False)
-    trial_ledger.to_csv(TRIAL_LEDGER_CSV, index=False)
+    if TRIAL_LEDGER_CSV.exists():
+        existing_trial_ledger = pd.read_csv(TRIAL_LEDGER_CSV)
+    else:
+        existing_trial_ledger = pd.DataFrame()
+    trial_ledger_columns = list(dict.fromkeys(existing_trial_ledger.columns.tolist() + trial_ledger.columns.tolist()))
+    trial_ledger_frames = [frame for frame in (existing_trial_ledger, trial_ledger) if not frame.empty]
+    merged_trial_ledger = (
+        pd.concat([frame.reindex(columns=trial_ledger_columns) for frame in trial_ledger_frames], ignore_index=True)
+        if trial_ledger_frames
+        else pd.DataFrame(columns=trial_ledger_columns)
+    )
+    merged_trial_ledger.to_csv(TRIAL_LEDGER_CSV, index=False)
 
     figures = {
         "cumgrowth": _save_cumgrowth_figure(panels, figure_dir),
@@ -1267,6 +1298,8 @@ def main() -> None:
     - `--start`, `--end`, `--folds`: walk-forward settings reused when
       attribution outputs are missing.
     - `--timesfm`: whether the baseline run used TimesFM.
+    - `--vol-budget`: internal ex-ante annualized volatility target reused by
+      attribution dependency rebuilds.
     - `--output-dir`: destination directory for CSV artifacts.
     - `--figure-dir`: destination directory for figure PNG files.
 
@@ -1285,6 +1318,7 @@ def main() -> None:
     parser.add_argument("--end", default="2025-12-31", help="Last OOS date for attribution dependency rebuilds.")
     parser.add_argument("--folds", type=int, default=5, help="Number of walk-forward folds.")
     parser.add_argument("--timesfm", action="store_true", help="Enable the optional TimesFM layer in dependency rebuilds.")
+    parser.add_argument("--vol-budget", type=float, default=TARGET_VOL, help="Internal ex-ante vol target used by the TAA optimizer.")
     parser.add_argument("--output-dir", default=str(OUTPUT_DIR), help="Destination directory for CSV outputs.")
     parser.add_argument("--figure-dir", default=str(FIGURES_DIR), help="Destination directory for figure PNG files.")
     args = parser.parse_args()
@@ -1294,6 +1328,7 @@ def main() -> None:
         end=args.end,
         folds=args.folds,
         use_timesfm=args.timesfm,
+        vol_budget=args.vol_budget,
         output_dir=Path(args.output_dir),
         figure_dir=Path(args.figure_dir),
     )

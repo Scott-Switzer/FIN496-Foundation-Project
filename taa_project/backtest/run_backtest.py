@@ -15,7 +15,7 @@ import numpy as np
 from tqdm import tqdm
 
 from taa_project.config import (
-    ALL_SAA, BM2_WEIGHTS, TAA_BANDS, COST_PER_TURNOVER, VOL_CEILING, MAX_DD,
+    ALL_SAA, BM2_WEIGHTS, TAA_BANDS, COST_PER_TURNOVER, VOL_CEILING, MAX_DD, TARGET_VOL,
     OUTPUT_DIR,
 )
 from taa_project.data_loader import load_prices, load_fred, log_returns, availability_flag
@@ -42,7 +42,18 @@ def run(
     refit_hmm_freq: str = "ME",
     rebalance_freq: str = "ME",
     hmm_states: int = 3,
+    vol_budget: float = TARGET_VOL,
 ):
+    if vol_budget > VOL_CEILING:
+        raise ValueError(
+            f"vol_budget={vol_budget:.4f} exceeds VOL_CEILING={VOL_CEILING:.4f}. "
+            "Use an internal target at or below the IPS volatility ceiling."
+        )
+    if vol_budget < 0.02:
+        raise ValueError(
+            f"vol_budget={vol_budget:.4f} is below 0.0200. "
+            "This is likely a typo; the standalone backtest refuses to run with unrealistically tight budgets."
+        )
     # ----- data -----
     prices = load_prices()
     fred = load_fred()
@@ -131,6 +142,7 @@ def run(
             prev_weights=prev_w,
             available=avail.loc[:t].iloc[-1].reindex(ALL_SAA).fillna(0),
             as_of_date=t,
+            vol_budget=vol_budget,
         )
 
         # 7) realize returns to next rebalance
@@ -179,9 +191,10 @@ if __name__ == "__main__":
     ap.add_argument("--start", default="2005-01-01")
     ap.add_argument("--end",   default=None)
     ap.add_argument("--timesfm", action="store_true", help="use TimesFM vol/dir signals")
+    ap.add_argument("--vol-budget", type=float, default=TARGET_VOL, help="Internal ex-ante vol target used by the TAA optimizer.")
     args = ap.parse_args()
 
-    w, r, rets = run(start=args.start, end=args.end, use_timesfm=args.timesfm)
+    w, r, rets = run(start=args.start, end=args.end, use_timesfm=args.timesfm, vol_budget=args.vol_budget)
     tearsheet(rets, "TAA overlay")
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     weights_path = OUTPUT_DIR / "taa_weights.csv"

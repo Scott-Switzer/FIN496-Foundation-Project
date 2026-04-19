@@ -14,8 +14,18 @@ Point-in-time safety:
 
 from __future__ import annotations
 
-import argparse
 import os
+
+os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+os.environ.setdefault("MKL_NUM_THREADS", "1")
+
+try:
+    import torch as _torch  # noqa: F401  # Pin the OpenMP runtime before SciPy / sklearn imports.
+except ImportError:
+    _torch = None
+
+import argparse
 import random
 import sys
 from datetime import datetime

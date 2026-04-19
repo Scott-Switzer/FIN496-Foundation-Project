@@ -1,5 +1,10 @@
 # Decisions
 
+## 2026-04-19 — TimesFM / OpenMP runtime
+- Decision: pre-import `torch` in both `taa_project/__init__.py` and `taa_project/main.py`, while setting `KMP_DUPLICATE_LIB_OK=TRUE`, `OMP_NUM_THREADS=1`, and `MKL_NUM_THREADS=1` before any SciPy / scikit-learn / hmmlearn imports occur.
+- Alternatives considered: leave the runtime as-is and rely on users to export OpenMP environment variables manually, or isolate the TimesFM path into a separate subprocess immediately.
+- Why this won: the end-to-end `--timesfm` path needs a deterministic, repo-local fix for the duplicate OpenMP runtime crash that occurs when Intel MKL-linked libraries and Torch initialize different OpenMP implementations in the same process. Preloading Torch first is the least invasive workaround and matches the documented behavior in the PyTorch duplicate-runtime issue and the scikit-learn OpenMP FAQ: https://github.com/pytorch/pytorch/issues/6027 and https://scikit-learn.org/stable/faq.html#why-do-i-sometimes-get-a-crash-freeze-with-n-jobs-1-under-osx-or-linux.
+
 ## 2026-04-18 — Promote `taa_scaffold/` into `taa_project/`
 - Decision: rename the untracked scaffold into a top-level Python package named `taa_project/`.
 - Alternatives considered: keep the scaffold name and wrap it later, or rebuild a new package and copy code across selectively.

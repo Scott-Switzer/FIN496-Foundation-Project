@@ -13,8 +13,8 @@
 - [x] Log the earliest available date for every asset
 
 ## Step 2: Data Cleaning
-- [ ] Convert all prices to **USD terms**
-- [ ] Handle missing values:
+- [x] Convert all prices to **USD terms**
+- [x] Handle missing values:
       - **Do not forward-fill any values**
       - **Do not backward-fill any values**
       - Missing days (e.g. holidays) → treat as **no trading day**
@@ -22,11 +22,11 @@
       - Any gap in data must be flagged and documented
       - If a gap is structural (asset suspended, market closed)
         → treat as no return for that period, not zero return
-- [ ] Remove duplicate dates
-- [ ] Confirm no negative or zero prices
-- [ ] Calculate **daily returns** only between consecutive
+- [x] Remove duplicate dates
+- [x] Confirm no negative or zero prices
+- [x] Calculate **daily returns** only between consecutive
       **available** observations — never across gaps
-- [ ] All cleaning decisions must be made using only
+- [x] All cleaning decisions must be made using only
       **information available at that point in time**
       — no future data may influence any cleaning step
 
@@ -44,9 +44,9 @@
 - [x] If constraints can be met → use that date as **portfolio start date**
 - [x] If constraints cannot be met → step forward day by day
       until they can be met
-- [ ] Assets not yet available at start date are **excluded** until
+- [x] Assets not yet available at start date are **excluded** until
       their data begins — do not backfill or substitute
-- [ ] When a new asset becomes available mid-history:
+- [x] When a new asset becomes available mid-history:
       - Introduce it at the **next scheduled rebalance date**
       - Confirm constraints still satisfied after introduction
       - Document the date it was added and weight assigned
@@ -63,17 +63,23 @@
 - `CHF_FRANC` was already available at inception on **2000-01-03**; only `BITCOIN` is a later non-traditional entrant
 
 ## Step 4: Combine into Master DataFrame
-- [ ] Merge all assets into a single **returns DataFrame**
-- [ ] Columns = asset tickers, rows = dates
-- [ ] Assets not yet available show **NaN** — these must remain
+- [x] Merge all assets into a single **returns DataFrame**
+- [x] Columns = asset tickers, rows = dates
+- [x] Assets not yet available show **NaN** — these must remain
       as NaN and must **never be filled by any method**
-- [ ] Add a **classification column** mapping each ticker to:
+- [x] Add a **classification column** mapping each ticker to:
       Core / Satellite / Non-Traditional / Opportunistic
-- [ ] Add an **availability flag column** per asset per date
+- [x] Add an **availability flag column** per asset per date
       (1 = available, 0 = not yet available or data gap)
-- [ ] At every date, portfolio weights must sum to 100%
+- [x] At every date, portfolio weights must sum to 100%
       using **only assets flagged as available on that date**
-- [ ] Any signal or metric calculations must use only
+- [x] Any signal or metric calculations must use only
       data available **up to and including** that date —
       no future observations may enter any calculation
-- [ ] Save master DataFrame as reference
+- [x] Save master DataFrame as reference
+
+### Step 2–4 Notes
+- `taa_project/outputs/data_audit_report.md` documents the duplicate-date check, non-positive-price check, gap tables, and the one-business-day FRED lag.
+- `taa_project/outputs/asset_log_returns.csv` is the audited wide returns panel; `taa_project/outputs/asset_availability.csv` is the aligned availability matrix.
+- `taa_project/outputs/master_data_reference.csv` is the long-form reference export with `date`, `ticker`, `log_return`, `availability`, and Whitmore tier classification.
+- The authoritative `whitmore_daily.csv` file is already USD-denominated for the pipeline inputs; four non-USD metadata labels in `data_key.csv` remain flagged for review in the audit report rather than being silently transformed.

@@ -1,0 +1,21 @@
+# Core runtime for the Whitmore FIN 496 project.
+# TimesFM 2.5 is intentionally left out of the base pin set because the
+# official model card currently points to the google-research/timesfm repo
+# installation flow rather than a stable PyPI package. The pipeline will
+# support a --no-timesfm fallback if the optional dependency is unavailable.
+black>=24.4,<24.5
+clarabel>=0.7,<0.8
+cvxpy>=1.4,<1.5
+hmmlearn>=0.3.2,<0.3.3
+jupyter>=1.0,<1.1
+matplotlib>=3.8,<3.9
+nbformat>=5.10,<5.11
+numpy>=1.26,<1.27
+pandas>=2.2,<2.3
+pytest>=8.2,<8.3
+reportlab>=4.1,<4.2
+ruff>=0.4,<0.5
+scikit-learn>=1.4,<1.5
+scipy>=1.12,<1.13
+torch>=2.2,<2.4
+tqdm>=4.66,<4.67

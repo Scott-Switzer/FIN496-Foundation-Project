@@ -480,6 +480,41 @@ def calmar_ratio(returns: pd.Series) -> float:
     return ann_ret / abs(drawdown) if pd.notna(drawdown) and drawdown < 0 else float("nan")
 
 
+def sortino_ratio(returns: pd.Series, mar: float = 0.0) -> float:
+    """Annualized Sortino ratio.
+
+    Inputs:
+    - `returns`: daily simple return series.
+    - `mar`: minimum acceptable return, annualized, defaults to 0.
+
+    Outputs:
+    - (annualized excess return over MAR) / (annualized downside deviation below MAR).
+      Returns NaN when downside deviation is zero.
+
+    Citation:
+    - Sortino & Van der Meer (1991), "Downside Risk", Journal of Portfolio Management.
+      https://jpm.pm-research.com/content/17/4/27
+
+    Point-in-time safety:
+    - Ex-post metric only.
+    """
+
+    clean = returns.dropna()
+    if clean.empty:
+        return float("nan")
+    daily_mar = (1.0 + mar) ** (1.0 / TRADING_DAYS_PER_YEAR) - 1.0
+    excess = clean - daily_mar
+    downside = excess.clip(upper=0.0)
+    # Use population std with N in denominator (ddof=0), consistent with the
+    # Sharpe/vol conventions already used in this module.
+    dd = float((downside**2).mean()) ** 0.5
+    if dd == 0.0 or not np.isfinite(dd):
+        return float("nan")
+    ann_excess = annualized_return(clean) - mar
+    ann_dd = dd * math.sqrt(TRADING_DAYS_PER_YEAR)
+    return ann_excess / ann_dd
+
+
 def historical_var_95(returns: pd.Series) -> float:
     """Compute the 95% historical Value-at-Risk from daily simple returns.
 

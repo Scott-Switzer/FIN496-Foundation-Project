@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pandas as pd
 
+from taa_project.analysis.common import sortino_ratio
 from taa_project.analysis.reporting import _ips_compliance_rows
 from taa_project.config import ALL_SAA
 
@@ -39,3 +40,11 @@ def test_ips_compliance_rows_flags_single_sleeve_breach() -> None:
     violations = _ips_compliance_rows("strategy", weights)
 
     assert any(row["rule"] == "single_sleeve_cap" for row in violations)
+
+
+def test_sortino_ratio_is_finite_for_mixed_return_series() -> None:
+    returns = pd.Series([0.01, -0.02, 0.015, -0.005, 0.008], index=pd.date_range("2024-01-01", periods=5))
+
+    value = sortino_ratio(returns, mar=0.02)
+
+    assert pd.notna(value)

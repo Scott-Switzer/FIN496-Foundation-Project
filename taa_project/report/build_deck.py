@@ -234,7 +234,19 @@ def build_deck(
         ],
         [
             Paragraph("Metrics Table", styles["DeckHeading"]),
-            _compact_table(metrics[["portfolio", "annualized_return", "annualized_volatility", "sharpe_rf_2pct", "max_drawdown", "cost_drag_pa"]]),
+            _compact_table(
+                metrics[
+                    [
+                        "portfolio",
+                        "annualized_return",
+                        "annualized_volatility",
+                        "sharpe_rf_2pct",
+                        "sortino_rf_2pct",
+                        "calmar",
+                        "max_drawdown",
+                    ]
+                ].rename(columns={"sharpe_rf_2pct": "Sharpe", "sortino_rf_2pct": "Sortino", "calmar": "Calmar"})
+            ),
         ],
         [
             Paragraph("Attribution", styles["DeckHeading"]),

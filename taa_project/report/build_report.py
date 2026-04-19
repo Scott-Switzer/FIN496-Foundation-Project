@@ -342,14 +342,31 @@ def build_report(
             Paragraph("SAA Method Comparison", styles["WhitmoreHeading"]),
             _df_table(
                 inputs["saa_methods"][
-                    ["method", "annualized_return", "annualized_volatility", "sharpe", "max_drawdown", "turnover_pa"]
+                    [
+                        "method",
+                        "annualized_return",
+                        "annualized_volatility",
+                        "sharpe",
+                        "sortino",
+                        "max_drawdown",
+                        "turnover_pa",
+                    ]
                 ]
             ),
             Spacer(1, 0.25 * cm),
             Paragraph("Per-Fold OOS Metrics", styles["WhitmoreHeading"]),
             _df_table(
                 inputs["per_fold"][
-                    ["fold_id", "start_date", "end_date", "annualized_return", "annualized_volatility", "sharpe", "max_drawdown"]
+                    [
+                        "fold_id",
+                        "start_date",
+                        "end_date",
+                        "annualized_return",
+                        "annualized_volatility",
+                        "sharpe",
+                        "sortino",
+                        "max_drawdown",
+                    ]
                 ]
             ),
             Spacer(1, 0.25 * cm),
@@ -362,10 +379,11 @@ def build_report(
                         "annualized_volatility",
                         "max_drawdown",
                         "sharpe_rf_2pct",
+                        "sortino_rf_2pct",
                         "calmar",
                         "cost_drag_pa",
                     ]
-                ]
+                ].rename(columns={"sharpe_rf_2pct": "Sharpe", "sortino_rf_2pct": "Sortino", "calmar": "Calmar"})
             ),
             PageBreak(),
             Paragraph("Performance Results", styles["WhitmoreHeading"]),

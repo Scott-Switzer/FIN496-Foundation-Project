@@ -152,7 +152,7 @@ def build_diagnostics_notebook(
         nbf.v4.new_markdown_cell("## Turnover and Cost Profile"),
         nbf.v4.new_code_cell(
             "metrics = pd.read_csv(OUTPUT_DIR / 'portfolio_metrics.csv')\n"
-            "display(metrics[['portfolio','turnover_pa','cost_drag_pa','hit_rate']])\n"
+            "display(metrics[['portfolio','sharpe_rf_2pct','sortino_rf_2pct','calmar','turnover_pa','cost_drag_pa','hit_rate']].rename(columns={'sharpe_rf_2pct': 'Sharpe', 'sortino_rf_2pct': 'Sortino', 'calmar': 'Calmar'}))\n"
         ),
         nbf.v4.new_markdown_cell("## Trial Ledger"),
         nbf.v4.new_code_cell(

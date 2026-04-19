@@ -80,6 +80,8 @@ class EnsembleConfig:
       combination weights across the four signal layers.
     - `regime_scale`, `trend_scale`, `momo_scale`: return-like scaling factors
       applied to the corresponding raw signals.
+    - `vol_budget_by_regime`: optional regime-specific volatility budgets used
+      by the walk-forward engine to override the flat monthly vol target.
 
     Outputs:
     - Immutable config consumed by `ensemble_score`.
@@ -98,6 +100,7 @@ class EnsembleConfig:
     regime_scale: float = 0.10
     trend_scale: float = 0.06
     momo_scale: float = 0.06
+    vol_budget_by_regime: dict[str, float] | None = None
 
 
 @dataclass(frozen=True)

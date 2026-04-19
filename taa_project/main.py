@@ -26,6 +26,7 @@ except ImportError:
     _torch = None
 
 import argparse
+import json
 import random
 import sys
 from datetime import datetime, timezone
@@ -54,6 +55,7 @@ from taa_project.config import (
 )
 from taa_project.data_audit import run_data_audit
 from taa_project.notebooks.build_diagnostics import build_diagnostics_notebook
+from taa_project.optimizer.cvxpy_opt import EnsembleConfig
 from taa_project.report.build_deck import build_deck
 from taa_project.report.build_report import build_report
 from taa_project.saa.build_saa import build_saa_portfolio
@@ -213,6 +215,36 @@ def _append_pipeline_trial_row(
     combined.to_csv(TRIAL_LEDGER_CSV, index=False)
 
 
+def _parse_regime_vol_budgets(raw_json: str | None) -> dict[str, float] | None:
+    """Parse optional regime-specific volatility budgets from JSON.
+
+    Inputs:
+    - `raw_json`: JSON string such as `{"risk_on": 0.10, "neutral": 0.08, "stress": 0.05}`.
+
+    Outputs:
+    - Parsed mapping from regime label to validated vol budget, or `None`.
+
+    Citation:
+    - Whitmore Task 4 regime-vol overlay requirement.
+
+    Point-in-time safety:
+    - Safe. This is static runtime configuration only.
+    """
+
+    if raw_json is None:
+        return None
+    try:
+        parsed = json.loads(raw_json)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Unable to parse --regime-vol-budgets JSON: {exc}") from exc
+    if not isinstance(parsed, dict):
+        raise ValueError("--regime-vol-budgets must decode to a JSON object.")
+    budgets: dict[str, float] = {}
+    for regime_label, value in parsed.items():
+        budgets[str(regime_label)] = _validate_vol_budget(float(value))
+    return budgets
+
+
 def seed_everything(seed: int = DEFAULT_RANDOM_SEED, seed_torch: bool = False) -> None:
     """Seed Python, NumPy, and Torch RNGs for deterministic runs.
 
@@ -269,6 +301,7 @@ def run_pipeline(
     folds: int = 5,
     use_timesfm: bool = False,
     vol_budget: float = TARGET_VOL,
+    regime_vol_budgets: dict[str, float] | None = None,
     output_dir: Path = OUTPUT_DIR,
     figure_dir: Path = FIGURES_DIR,
     report_dir: Path = REPORT_DIR,
@@ -280,6 +313,8 @@ def run_pipeline(
     - `start`, `end`, `folds`: walk-forward settings.
     - `use_timesfm`: whether to enable the optional TimesFM signal layer.
     - `vol_budget`: internal ex-ante vol target passed into the TAA optimizer.
+    - `regime_vol_budgets`: optional regime-specific vol targets that override
+      the flat monthly budget by inferred HMM state.
     - `output_dir`: destination directory for generated CSV artifacts.
     - `figure_dir`: destination directory for figure PNGs.
     - `report_dir`: destination directory for report/deck PDFs.
@@ -302,6 +337,10 @@ def run_pipeline(
             "Rerun with --no-timesfm or install the official google-research/timesfm stack."
         )
     vol_budget = _validate_vol_budget(vol_budget)
+    if regime_vol_budgets is not None:
+        for regime_label, regime_budget in regime_vol_budgets.items():
+            regime_vol_budgets[regime_label] = _validate_vol_budget(regime_budget)
+    ensemble_config = EnsembleConfig(vol_budget_by_regime=regime_vol_budgets)
 
     seed_everything(DEFAULT_RANDOM_SEED, seed_torch=use_timesfm)
     MPLCONFIG_DIR.mkdir(parents=True, exist_ok=True)
@@ -330,6 +369,7 @@ def run_pipeline(
         folds=folds,
         use_timesfm=use_timesfm,
         vol_budget=vol_budget,
+        ensemble_config=ensemble_config,
         output_dir=output_dir,
     )
 
@@ -340,6 +380,7 @@ def run_pipeline(
         folds=folds,
         use_timesfm=use_timesfm,
         vol_budget=vol_budget,
+        ensemble_config=ensemble_config,
         output_dir=output_dir,
     )
 
@@ -350,6 +391,7 @@ def run_pipeline(
         folds=folds,
         use_timesfm=use_timesfm,
         vol_budget=vol_budget,
+        ensemble_config=ensemble_config,
         output_dir=output_dir,
         figure_dir=figure_dir,
     )
@@ -408,6 +450,8 @@ def main() -> None:
       layer.
     - `--vol-budget`: internal ex-ante vol target passed into the TAA
       optimizer.
+    - `--regime-vol-budgets`: optional JSON mapping from regime label to
+      regime-specific vol budget.
     - `--output-dir`, `--figure-dir`, `--report-dir`, `--notebook-dir`:
       artifact destinations.
 
@@ -436,6 +480,12 @@ def main() -> None:
         default=TARGET_VOL,
         help="Internal ex-ante vol target used by the TAA optimizer (default 0.10 = IPS internal target).",
     )
+    parser.add_argument(
+        "--regime-vol-budgets",
+        dest="regime_vol_budgets",
+        default=None,
+        help='Optional JSON mapping such as {"risk_on":0.10,"neutral":0.08,"stress":0.05}.',
+    )
     parser.add_argument("--output-dir", default=str(OUTPUT_DIR), help="Destination directory for CSV outputs.")
     parser.add_argument("--figure-dir", default=str(FIGURES_DIR), help="Destination directory for figure PNGs.")
     parser.add_argument("--report-dir", default=str(REPORT_DIR), help="Destination directory for report/deck PDFs.")
@@ -448,6 +498,7 @@ def main() -> None:
         folds=args.folds,
         use_timesfm=args.use_timesfm,
         vol_budget=args.vol_budget,
+        regime_vol_budgets=_parse_regime_vol_budgets(args.regime_vol_budgets),
         output_dir=Path(args.output_dir),
         figure_dir=Path(args.figure_dir),
         report_dir=Path(args.report_dir),

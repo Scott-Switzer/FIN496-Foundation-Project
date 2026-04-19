@@ -13,6 +13,7 @@ from taa_project.backtest.walkforward import (
 )
 from taa_project.config import ALL_SAA
 from taa_project.data_loader import load_prices
+from taa_project.optimizer.cvxpy_opt import EnsembleConfig, OptimizationResult
 from taa_project.signals import SignalBundle
 
 
@@ -88,3 +89,53 @@ def test_run_walkforward_rejects_invalid_vol_budget(tmp_path) -> None:
             vol_budget=0.16,
             output_dir=tmp_path,
         )
+
+
+def test_run_walkforward_uses_regime_specific_vol_budget(monkeypatch, tmp_path) -> None:
+    captured: list[float] = []
+
+    def fake_build_signal_bundle_at_date(**kwargs):
+        zero = pd.Series(0.0, index=ALL_SAA, dtype=float)
+        probs = pd.Series({"risk_on": 0.1, "neutral": 0.2, "stress": 0.7}, dtype=float)
+        bundle = SignalBundle(
+            regime_probs=probs,
+            regime_label="stress",
+            trend=zero,
+            momo=zero,
+            timesfm_mu=zero,
+            timesfm_sigma=pd.Series(0.2, index=ALL_SAA, dtype=float),
+            timesfm_dir=zero,
+        )
+        return bundle, kwargs.get("hmm_model_cache")
+
+    def fake_solve_taa_monthly_result(**kwargs):
+        captured.append(float(kwargs["vol_budget"]))
+        weights = pd.Series(0.0, index=ALL_SAA, dtype=float)
+        weights["SPXT"] = 0.40
+        weights["LBUSTRUU"] = 0.60
+        return OptimizationResult(
+            weights=weights,
+            mode="taa_monthly",
+            status="optimal",
+            used_fallback=False,
+            turnover=0.0,
+            turnover_cost=0.0,
+            ex_ante_vol=float(kwargs["vol_budget"]),
+        )
+
+    monkeypatch.setattr(walkforward_module, "build_signal_bundle_at_date", fake_build_signal_bundle_at_date)
+    monkeypatch.setattr(walkforward_module, "solve_taa_monthly_result", fake_solve_taa_monthly_result)
+
+    run_walkforward(
+        start="2003-01-01",
+        end="2003-06-30",
+        folds=2,
+        embargo_business_days=21,
+        use_timesfm=False,
+        vol_budget=0.10,
+        ensemble_config=EnsembleConfig(vol_budget_by_regime={"risk_on": 0.10, "neutral": 0.08, "stress": 0.05}),
+        output_dir=tmp_path,
+    )
+
+    assert captured
+    assert set(captured) == {0.05}

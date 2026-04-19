@@ -20,6 +20,7 @@ Point-in-time safety:
 from __future__ import annotations
 
 import argparse
+from dataclasses import replace
 from pathlib import Path
 
 import pandas as pd
@@ -169,6 +170,7 @@ def _run_signal_ablations(
     folds: int,
     use_timesfm: bool,
     vol_budget: float,
+    ensemble_config: EnsembleConfig | None,
     output_dir: Path,
 ) -> pd.DataFrame:
     """Run leave-one-out signal ablations and summarize OOS impacts.
@@ -177,6 +179,8 @@ def _run_signal_ablations(
     - `start`, `end`, `folds`: walk-forward settings.
     - `use_timesfm`: whether the baseline run used TimesFM.
     - `vol_budget`: internal ex-ante annualized volatility target.
+    - `ensemble_config`: optional baseline ensemble configuration whose
+      non-ablation fields are preserved in the reruns.
     - `output_dir`: root output directory for storing ablation runs.
 
     Outputs:
@@ -196,14 +200,15 @@ def _run_signal_ablations(
     baseline_ann_return = annualized_return(baseline_returns)
     baseline_drawdown = max_drawdown(baseline_returns)
 
+    base_config = EnsembleConfig() if ensemble_config is None else ensemble_config
     variants = {
-        "baseline": EnsembleConfig(),
-        "no_regime": EnsembleConfig(regime_weight=0.0),
-        "no_trend": EnsembleConfig(trend_weight=0.0),
-        "no_momo": EnsembleConfig(momo_weight=0.0),
+        "baseline": base_config,
+        "no_regime": replace(base_config, regime_weight=0.0),
+        "no_trend": replace(base_config, trend_weight=0.0),
+        "no_momo": replace(base_config, momo_weight=0.0),
     }
     if use_timesfm:
-        variants["no_timesfm"] = EnsembleConfig(timesfm_weight=0.0)
+        variants["no_timesfm"] = replace(base_config, timesfm_weight=0.0)
 
     rows = []
     ablation_root = output_dir / ABLATION_DIRNAME
@@ -276,6 +281,7 @@ def build_attribution(
     folds: int = 5,
     use_timesfm: bool = False,
     vol_budget: float = TARGET_VOL,
+    ensemble_config: EnsembleConfig | None = None,
     output_dir: Path = OUTPUT_DIR,
 ) -> dict[str, pd.DataFrame]:
     """Build all required attribution outputs for Whitmore.
@@ -285,6 +291,8 @@ def build_attribution(
       ablations.
     - `use_timesfm`: whether the baseline run used TimesFM.
     - `vol_budget`: internal ex-ante annualized volatility target reused by
+      the ablation reruns.
+    - `ensemble_config`: optional baseline ensemble configuration reused by
       the ablation reruns.
     - `output_dir`: root directory containing walk-forward outputs.
 
@@ -338,6 +346,7 @@ def build_attribution(
         folds=folds,
         use_timesfm=use_timesfm,
         vol_budget=vol_budget,
+        ensemble_config=ensemble_config,
         output_dir=output_dir,
     )
 

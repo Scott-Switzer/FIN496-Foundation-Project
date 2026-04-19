@@ -88,6 +88,7 @@ from taa_project.config import (
     VOL_CEILING,
 )
 from taa_project.data_loader import log_returns
+from taa_project.optimizer.cvxpy_opt import EnsembleConfig
 from taa_project.saa.build_saa import (
     DIAGONAL_FLOOR as SAA_DIAGONAL_FLOOR,
     DEFAULT_END as SAA_DEFAULT_END,
@@ -441,6 +442,7 @@ def _load_attribution_outputs(
     folds: int,
     use_timesfm: bool,
     vol_budget: float,
+    ensemble_config: EnsembleConfig | None,
     output_dir: Path,
 ) -> dict[str, pd.DataFrame]:
     """Load attribution outputs, building them first when missing.
@@ -448,6 +450,8 @@ def _load_attribution_outputs(
     Inputs:
     - `start`, `end`, `folds`, `use_timesfm`: attribution rerun settings.
     - `vol_budget`: internal ex-ante annualized volatility target reused by
+      attribution reruns when outputs are missing.
+    - `ensemble_config`: optional baseline ensemble configuration reused by
       attribution reruns when outputs are missing.
     - `output_dir`: directory containing attribution artifacts.
 
@@ -473,6 +477,7 @@ def _load_attribution_outputs(
             folds=folds,
             use_timesfm=use_timesfm,
             vol_budget=vol_budget,
+            ensemble_config=ensemble_config,
             output_dir=output_dir,
         )
 
@@ -1193,6 +1198,7 @@ def build_reporting(
     folds: int = 5,
     use_timesfm: bool = False,
     vol_budget: float = TARGET_VOL,
+    ensemble_config: EnsembleConfig | None = None,
     output_dir: Path = OUTPUT_DIR,
     figure_dir: Path = FIGURES_DIR,
 ) -> dict[str, object]:
@@ -1203,6 +1209,8 @@ def build_reporting(
       outputs are missing.
     - `use_timesfm`: whether the baseline run used TimesFM.
     - `vol_budget`: internal ex-ante annualized volatility target reused by
+      attribution reruns when needed.
+    - `ensemble_config`: optional baseline ensemble configuration reused by
       attribution reruns when needed.
     - `output_dir`: destination directory for CSV artifacts.
     - `figure_dir`: destination directory for figure PNG files.
@@ -1231,6 +1239,7 @@ def build_reporting(
         folds=folds,
         use_timesfm=use_timesfm,
         vol_budget=vol_budget,
+        ensemble_config=ensemble_config,
         output_dir=output_dir,
     )
     panels = _build_strategy_panels(outputs, output_dir=output_dir)

@@ -531,6 +531,18 @@ def run_walkforward(
         forecaster = TimesFMForecaster(max_context=1024, max_horizon=64)
 
     config = EnsembleConfig() if ensemble_config is None else ensemble_config
+    if config.vol_budget_by_regime is not None:
+        for regime_label, regime_budget in config.vol_budget_by_regime.items():
+            if regime_budget > VOL_CEILING:
+                raise ValueError(
+                    f"regime vol budget for {regime_label}={regime_budget:.4f} exceeds "
+                    f"VOL_CEILING={VOL_CEILING:.4f}."
+                )
+            if regime_budget < 0.02:
+                raise ValueError(
+                    f"regime vol budget for {regime_label}={regime_budget:.4f} is below 0.0200. "
+                    "This is likely a typo."
+                )
     previous_weights = pd.Series(BM2_WEIGHTS, dtype=float).reindex(ALL_SAA).fillna(0.0)
     current_hmm_model = None
     current_fold_id: int | None = None
@@ -571,13 +583,19 @@ def run_walkforward(
             decision_date=pd.Timestamp(decision_date),
             timesfm_sigma=signal_bundle.timesfm_sigma,
         )
+        active_vol_budget = (
+            config.vol_budget_by_regime[signal_bundle.regime_label]
+            if config.vol_budget_by_regime is not None
+            and signal_bundle.regime_label in config.vol_budget_by_regime
+            else vol_budget
+        )
         solve_result = solve_taa_monthly_result(
             signal_score=signal_score,
             cov_matrix=covariance,
             prev_weights=previous_weights,
             available=availability.loc[:decision_date].iloc[-1].reindex(ALL_SAA).fillna(0.0),
             as_of_date=pd.Timestamp(decision_date),
-            vol_budget=vol_budget,
+            vol_budget=active_vol_budget,
         )
 
         weight_row = solve_result.weights.rename(pd.Timestamp(decision_date))
@@ -585,6 +603,7 @@ def run_walkforward(
         weight_row["turnover"] = solve_result.turnover
         weight_row["turnover_cost"] = solve_result.turnover_cost
         weight_row["ex_ante_vol"] = solve_result.ex_ante_vol
+        weight_row["active_vol_budget"] = active_vol_budget
         weight_row["optimizer_status"] = solve_result.status
         weight_row["used_fallback"] = int(solve_result.used_fallback)
         weight_rows.append(weight_row)
@@ -598,6 +617,7 @@ def run_walkforward(
             "turnover": solve_result.turnover,
             "turnover_cost": solve_result.turnover_cost,
             "ex_ante_vol": solve_result.ex_ante_vol,
+            "active_vol_budget": active_vol_budget,
         }
         regime_row.update(signal_bundle.regime_probs.to_dict())
         regime_rows.append(regime_row)

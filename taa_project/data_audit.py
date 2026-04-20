@@ -27,6 +27,7 @@ from taa_project.config import (
     PRICES_CSV,
     SATELLITE,
 )
+from taa_project.pandas_utils import forward_propagate
 
 
 REPORT_FILENAME = "data_audit_report.md"
@@ -355,7 +356,7 @@ def load_fred_features(
     lagged = fred.copy()
     lagged.index = lagged.index + pd.offsets.BDay(lag_business_days)
     if calendar_index is not None:
-        lagged = lagged.reindex(calendar_index).ffill()
+        lagged = forward_propagate(lagged.reindex(calendar_index))
     return lagged
 
 

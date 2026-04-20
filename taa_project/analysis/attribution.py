@@ -20,6 +20,7 @@ Point-in-time safety:
 from __future__ import annotations
 
 import argparse
+from dataclasses import replace
 from pathlib import Path
 
 import pandas as pd
@@ -35,7 +36,7 @@ from taa_project.analysis.common import (
     tier_map,
 )
 from taa_project.backtest.walkforward import run_walkforward
-from taa_project.config import ALL_SAA, OUTPUT_DIR
+from taa_project.config import ALL_SAA, OUTPUT_DIR, TARGET_VOL
 from taa_project.optimizer.cvxpy_opt import EnsembleConfig
 
 
@@ -168,6 +169,8 @@ def _run_signal_ablations(
     end: str,
     folds: int,
     use_timesfm: bool,
+    vol_budget: float,
+    ensemble_config: EnsembleConfig | None,
     output_dir: Path,
 ) -> pd.DataFrame:
     """Run leave-one-out signal ablations and summarize OOS impacts.
@@ -175,6 +178,9 @@ def _run_signal_ablations(
     Inputs:
     - `start`, `end`, `folds`: walk-forward settings.
     - `use_timesfm`: whether the baseline run used TimesFM.
+    - `vol_budget`: internal ex-ante annualized volatility target.
+    - `ensemble_config`: optional baseline ensemble configuration whose
+      non-ablation fields are preserved in the reruns.
     - `output_dir`: root output directory for storing ablation runs.
 
     Outputs:
@@ -194,14 +200,15 @@ def _run_signal_ablations(
     baseline_ann_return = annualized_return(baseline_returns)
     baseline_drawdown = max_drawdown(baseline_returns)
 
+    base_config = EnsembleConfig() if ensemble_config is None else ensemble_config
     variants = {
-        "baseline": EnsembleConfig(),
-        "no_regime": EnsembleConfig(regime_weight=0.0),
-        "no_trend": EnsembleConfig(trend_weight=0.0),
-        "no_momo": EnsembleConfig(momo_weight=0.0),
+        "baseline": base_config,
+        "no_regime": replace(base_config, regime_weight=0.0),
+        "no_trend": replace(base_config, trend_weight=0.0),
+        "no_momo": replace(base_config, momo_weight=0.0),
     }
     if use_timesfm:
-        variants["no_timesfm"] = EnsembleConfig(timesfm_weight=0.0)
+        variants["no_timesfm"] = replace(base_config, timesfm_weight=0.0)
 
     rows = []
     ablation_root = output_dir / ABLATION_DIRNAME
@@ -230,11 +237,13 @@ def _run_signal_ablations(
             continue
 
         variant_output_dir = ablation_root / variant_id
+        variant_use_timesfm = use_timesfm and variant_id != "no_timesfm"
         artifacts = run_walkforward(
             start=start,
             end=end,
             folds=folds,
-            use_timesfm=use_timesfm,
+            use_timesfm=variant_use_timesfm,
+            vol_budget=vol_budget,
             output_dir=variant_output_dir,
             ensemble_config=config,
         )
@@ -272,6 +281,8 @@ def build_attribution(
     end: str = "2025-12-31",
     folds: int = 5,
     use_timesfm: bool = False,
+    vol_budget: float = TARGET_VOL,
+    ensemble_config: EnsembleConfig | None = None,
     output_dir: Path = OUTPUT_DIR,
 ) -> dict[str, pd.DataFrame]:
     """Build all required attribution outputs for Whitmore.
@@ -280,6 +291,10 @@ def build_attribution(
     - `start`, `end`, `folds`: walk-forward settings reused for signal
       ablations.
     - `use_timesfm`: whether the baseline run used TimesFM.
+    - `vol_budget`: internal ex-ante annualized volatility target reused by
+      the ablation reruns.
+    - `ensemble_config`: optional baseline ensemble configuration reused by
+      the ablation reruns.
     - `output_dir`: root directory containing walk-forward outputs.
 
     Outputs:
@@ -331,6 +346,8 @@ def build_attribution(
         end=end,
         folds=folds,
         use_timesfm=use_timesfm,
+        vol_budget=vol_budget,
+        ensemble_config=ensemble_config,
         output_dir=output_dir,
     )
 
@@ -353,6 +370,7 @@ def main() -> None:
     - `--start`, `--end`, `--folds`: walk-forward settings reused for the
       per-signal ablation reruns.
     - `--timesfm`: enable the optional TimesFM ablation branch.
+    - `--vol-budget`: internal ex-ante annualized volatility target.
     - `--output-dir`: destination directory for attribution CSV files.
 
     Outputs:
@@ -370,6 +388,7 @@ def main() -> None:
     parser.add_argument("--end", default="2025-12-31", help="Last OOS date for ablation reruns.")
     parser.add_argument("--folds", type=int, default=5, help="Number of walk-forward folds.")
     parser.add_argument("--timesfm", action="store_true", help="Enable the optional TimesFM signal layer.")
+    parser.add_argument("--vol-budget", type=float, default=TARGET_VOL, help="Internal ex-ante vol target used by the TAA optimizer.")
     parser.add_argument("--output-dir", default=str(OUTPUT_DIR), help="Destination directory for output CSV files.")
     args = parser.parse_args()
 
@@ -378,6 +397,7 @@ def main() -> None:
         end=args.end,
         folds=args.folds,
         use_timesfm=args.timesfm,
+        vol_budget=args.vol_budget,
         output_dir=Path(args.output_dir),
     )
     print(

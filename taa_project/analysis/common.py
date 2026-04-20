@@ -21,8 +21,9 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 
-from taa_project.config import ALL_SAA, CORE, NONTRAD, OUTPUT_DIR, SATELLITE
+from taa_project.config import ALL_SAA, CORE, NONTRAD, OUTPUT_DIR, SATELLITE, TRIAL_LEDGER_CSV
 from taa_project.data_loader import load_prices, log_returns
+from taa_project.pandas_utils import forward_propagate
 
 
 TRADING_DAYS_PER_YEAR = 252
@@ -150,7 +151,7 @@ def decision_weights_to_daily_target(
     """
 
     weights = decision_weights.loc[:, ALL_SAA].copy()
-    expanded = weights.reindex(weights.index.union(daily_index)).sort_index().ffill()
+    expanded = forward_propagate(weights.reindex(weights.index.union(daily_index)).sort_index())
     return expanded.reindex(daily_index).fillna(0.0)
 
 
@@ -344,6 +345,35 @@ def annualized_volatility(returns: pd.Series) -> float:
     return float(clean.std(ddof=0) * math.sqrt(TRADING_DAYS_PER_YEAR)) if not clean.empty else float("nan")
 
 
+def sample_sharpe_ratio(returns: pd.Series, risk_free_rate: float = RISK_FREE_RATE) -> float:
+    """Compute the daily-frequency Sharpe ratio from daily simple returns.
+
+    Inputs:
+    - `returns`: daily simple return series.
+    - `risk_free_rate`: annual risk-free rate converted to a daily hurdle.
+
+    Outputs:
+    - Daily Sharpe ratio using population volatility (`ddof=0`).
+
+    Citation:
+    - Bailey & López de Prado (2014), Deflated Sharpe Ratio:
+      https://www.davidhbailey.com/dhbpapers/deflated-sharpe.pdf
+
+    Point-in-time safety:
+    - Ex-post metric only.
+    """
+
+    clean = returns.dropna()
+    if clean.empty:
+        return float("nan")
+    daily_rf = (1.0 + risk_free_rate) ** (1.0 / TRADING_DAYS_PER_YEAR) - 1.0
+    excess = clean - daily_rf
+    sigma = float(excess.std(ddof=0))
+    if not np.isfinite(sigma) or sigma <= 0.0:
+        return float("nan")
+    return float(excess.mean() / sigma)
+
+
 def sharpe_ratio(returns: pd.Series, risk_free_rate: float = RISK_FREE_RATE) -> float:
     """Compute the annualized Sharpe ratio using daily simple returns.
 
@@ -480,6 +510,41 @@ def calmar_ratio(returns: pd.Series) -> float:
     return ann_ret / abs(drawdown) if pd.notna(drawdown) and drawdown < 0 else float("nan")
 
 
+def sortino_ratio(returns: pd.Series, mar: float = 0.0) -> float:
+    """Annualized Sortino ratio.
+
+    Inputs:
+    - `returns`: daily simple return series.
+    - `mar`: minimum acceptable return, annualized, defaults to 0.
+
+    Outputs:
+    - (annualized excess return over MAR) / (annualized downside deviation below MAR).
+      Returns NaN when downside deviation is zero.
+
+    Citation:
+    - Sortino & Van der Meer (1991), "Downside Risk", Journal of Portfolio Management.
+      https://jpm.pm-research.com/content/17/4/27
+
+    Point-in-time safety:
+    - Ex-post metric only.
+    """
+
+    clean = returns.dropna()
+    if clean.empty:
+        return float("nan")
+    daily_mar = (1.0 + mar) ** (1.0 / TRADING_DAYS_PER_YEAR) - 1.0
+    excess = clean - daily_mar
+    downside = excess.clip(upper=0.0)
+    # Use population std with N in denominator (ddof=0), consistent with the
+    # Sharpe/vol conventions already used in this module.
+    dd = float((downside**2).mean()) ** 0.5
+    if dd == 0.0 or not np.isfinite(dd):
+        return float("nan")
+    ann_excess = annualized_return(clean) - mar
+    ann_dd = dd * math.sqrt(TRADING_DAYS_PER_YEAR)
+    return ann_excess / ann_dd
+
+
 def historical_var_95(returns: pd.Series) -> float:
     """Compute the 95% historical Value-at-Risk from daily simple returns.
 
@@ -609,6 +674,34 @@ def tier_weight_frame(weights: pd.DataFrame) -> pd.DataFrame:
     )
 
 
+def disclosed_trial_count(
+    trial_ledger: pd.DataFrame | None = None,
+    ledger_path: Path = TRIAL_LEDGER_CSV,
+) -> int:
+    """Return the number of disclosed trial rows used in the DSR denominator.
+
+    Inputs:
+    - `trial_ledger`: optional in-memory trial ledger.
+    - `ledger_path`: fallback path when `trial_ledger` is omitted.
+
+    Outputs:
+    - Integer row count.
+
+    Citation:
+    - Bailey & López de Prado (2014), Deflated Sharpe Ratio:
+      https://www.davidhbailey.com/dhbpapers/deflated-sharpe.pdf
+
+    Point-in-time safety:
+    - Safe. This is an ex-post disclosure count only.
+    """
+
+    if trial_ledger is not None:
+        return int(len(trial_ledger))
+    if ledger_path.exists():
+        return int(len(pd.read_csv(ledger_path)))
+    return 0
+
+
 def deflated_sharpe_ratio(returns: pd.Series, n_trials: int) -> float:
     """Compute the Deflated Sharpe Ratio for a daily return series.
 
@@ -631,15 +724,27 @@ def deflated_sharpe_ratio(returns: pd.Series, n_trials: int) -> float:
     if len(clean) < 3 or n_trials <= 0:
         return float("nan")
 
-    sr = sharpe_ratio(clean)
-    skew = float(stats.skew(clean, bias=False)) if len(clean) > 2 else 0.0
-    kurt = float(stats.kurtosis(clean, fisher=False, bias=False)) if len(clean) > 3 else 3.0
-    sr_variance = (1.0 - skew * sr + ((kurt - 1.0) / 4.0) * sr**2) / max(len(clean) - 1, 1)
-    sr_std = math.sqrt(max(sr_variance, 1e-12))
+    daily_rf = (1.0 + RISK_FREE_RATE) ** (1.0 / TRADING_DAYS_PER_YEAR) - 1.0
+    excess = clean - daily_rf
+    sr = sample_sharpe_ratio(clean, risk_free_rate=RISK_FREE_RATE)
+    if not np.isfinite(sr):
+        return float("nan")
 
-    quantile_one = stats.norm.ppf(1.0 - 1.0 / n_trials) if n_trials > 1 else 0.0
-    quantile_two = stats.norm.ppf(1.0 - 1.0 / (n_trials * math.e)) if n_trials > 1 else 0.0
-    expected_max_sr = sr_std * ((1.0 - EULER_MASCHERONI) * quantile_one + EULER_MASCHERONI * quantile_two)
-    denominator = math.sqrt(max(1.0 - skew * sr + ((kurt - 1.0) / 4.0) * sr**2, 1e-12))
-    z_score = (sr - expected_max_sr) * math.sqrt(max(len(clean) - 1, 1)) / denominator
+    skew = float(stats.skew(excess, bias=False)) if len(excess) > 2 else 0.0
+    kurt = float(stats.kurtosis(excess, fisher=False, bias=False)) if len(excess) > 3 else 3.0
+    denominator_term = 1.0 - skew * sr + ((kurt - 1.0) / 4.0) * sr**2
+    if not np.isfinite(denominator_term) or denominator_term <= 0.0:
+        return float("nan")
+
+    sr_variance = denominator_term / max(len(excess) - 1, 1)
+    sr_std = math.sqrt(max(sr_variance, 1e-12))
+    if n_trials > 1:
+        quantile_one = stats.norm.ppf(1.0 - 1.0 / n_trials)
+        quantile_two = stats.norm.ppf(1.0 - 1.0 / (n_trials * math.e))
+        expected_max_sr = sr_std * (
+            (1.0 - EULER_MASCHERONI) * quantile_one + EULER_MASCHERONI * quantile_two
+        )
+    else:
+        expected_max_sr = 0.0
+    z_score = (sr - expected_max_sr) * math.sqrt(max(len(excess) - 1, 1)) / math.sqrt(denominator_term)
     return float(stats.norm.cdf(z_score))

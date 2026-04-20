@@ -7,7 +7,7 @@ import pandas as pd
 
 from taa_project.signals import SignalBundle
 from taa_project.signals.momentum_adm import cross_sectional_rank, period_return
-from taa_project.signals.regime_hmm import build_features, classify_states, fit_hmm
+from taa_project.signals.regime_hmm import FittedRegimeModel, MACRO_FEATURES, build_features, classify_states
 from taa_project.signals.trend_faber import trend_score
 from taa_project.signals.vol_timesfm import TimesFMForecaster
 
@@ -81,7 +81,34 @@ def test_regime_hmm_fit_and_classify_smoke() -> None:
     )
 
     features = build_features(fred)
-    model = fit_hmm(features, n_states=3, min_observations=252)
+    feature_mean = features.mean()
+    feature_std = features.std(ddof=0).replace(0.0, np.nan).fillna(1.0)
+
+    class DummyModel:
+        n_components = 3
+        means_ = np.array(
+            [
+                [-0.5, -0.4, 0.3, -0.4],
+                [0.0, 0.0, 0.0, 0.0],
+                [0.7, 0.6, -0.5, 0.8],
+            ]
+        )
+
+        def predict_proba(self, X: np.ndarray) -> np.ndarray:
+            base = np.tile(np.array([[0.2, 0.5, 0.3]]), (len(X), 1))
+            base[:, 0] += np.clip(-X[:, 0], 0.0, 0.15)
+            base[:, 2] += np.clip(X[:, 0], 0.0, 0.15)
+            base[:, 1] = 1.0
+            base[:, 1] -= base[:, 0] + base[:, 2]
+            return base
+
+    model = FittedRegimeModel(
+        model=DummyModel(),
+        feature_columns=tuple(MACRO_FEATURES),
+        feature_mean=feature_mean,
+        feature_std=feature_std,
+        state_names={0: "risk_on", 1: "neutral", 2: "stress"},
+    )
     classified = classify_states(model, features)
 
     assert {"p_risk_on", "p_neutral", "p_stress", "regime"}.issubset(classified.columns)

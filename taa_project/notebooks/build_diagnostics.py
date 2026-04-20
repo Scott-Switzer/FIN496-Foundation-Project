@@ -18,6 +18,7 @@ from pathlib import Path
 
 import nbformat as nbf
 
+from taa_project.analysis.config_comparison import CONFIG_COMPARISON_FILENAME, SUBMISSION_SELECTION_FILENAME
 from taa_project.config import NOTEBOOK_DIR, OUTPUT_DIR, REPO_ROOT
 
 
@@ -56,12 +57,16 @@ def build_diagnostics_notebook(
         ),
         nbf.v4.new_code_cell(
             "from pathlib import Path\n"
+            "import sys\n"
+            "import json\n"
             "import pandas as pd\n"
             "import matplotlib.pyplot as plt\n"
             "import numpy as np\n"
             "\n"
             f"REPO_ROOT = Path({str(REPO_ROOT)!r})\n"
             f"OUTPUT_DIR = Path({str(output_dir)!r})\n"
+            "if str(REPO_ROOT) not in sys.path:\n"
+            "    sys.path.insert(0, str(REPO_ROOT))\n"
             "plt.style.use('default')\n"
             "pd.set_option('display.max_columns', 50)\n"
             "pd.set_option('display.width', 160)\n"
@@ -135,6 +140,25 @@ def build_diagnostics_notebook(
             "display(folds)\n"
             "display(per_fold)\n"
         ),
+        nbf.v4.new_markdown_cell("## Risk Overlays & Vol-Budget Sweep"),
+        nbf.v4.new_code_cell(
+            f"comparison_path = OUTPUT_DIR / {CONFIG_COMPARISON_FILENAME!r}\n"
+            "if comparison_path.exists():\n"
+            "    comparison = pd.read_csv(comparison_path)\n"
+            "    display(comparison)\n"
+            "    comparison.plot.scatter(x='Ann. Vol', y='Ann. Return', figsize=(7, 4), grid=True)\n"
+            "    plt.title('Canonical Configuration Comparison')\n"
+            "    plt.show()\n"
+            "else:\n"
+            "    print('Config comparison not available for this output directory.')\n"
+        ),
+        nbf.v4.new_code_cell(
+            f"selection_path = OUTPUT_DIR / {SUBMISSION_SELECTION_FILENAME!r}\n"
+            "if selection_path.exists():\n"
+            "    display(pd.Series(json.loads(selection_path.read_text()), name='submission_selection'))\n"
+            "else:\n"
+            "    print('Submission-selection summary not available for this output directory.')\n"
+        ),
         nbf.v4.new_markdown_cell("## Attribution Decomposition"),
         nbf.v4.new_code_cell(
             "attr_saa = pd.read_csv(OUTPUT_DIR / 'attribution_saa_vs_bm2.csv')\n"
@@ -152,7 +176,7 @@ def build_diagnostics_notebook(
         nbf.v4.new_markdown_cell("## Turnover and Cost Profile"),
         nbf.v4.new_code_cell(
             "metrics = pd.read_csv(OUTPUT_DIR / 'portfolio_metrics.csv')\n"
-            "display(metrics[['portfolio','turnover_pa','cost_drag_pa','hit_rate']])\n"
+            "display(metrics[['portfolio','sharpe_rf_2pct','sortino_rf_2pct','calmar','turnover_pa','cost_drag_pa','hit_rate']].rename(columns={'sharpe_rf_2pct': 'Sharpe', 'sortino_rf_2pct': 'Sortino', 'calmar': 'Calmar'}))\n"
         ),
         nbf.v4.new_markdown_cell("## Trial Ledger"),
         nbf.v4.new_code_cell(

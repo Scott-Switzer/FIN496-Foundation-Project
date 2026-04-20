@@ -1,5 +1,35 @@
 # Decisions
 
+## 2026-04-19 — Sortino, risk overlays, and submission selection
+- Decision: add Sortino alongside Sharpe and Calmar in every metrics artifact and presentation surface.
+- Alternatives considered: keep only Sharpe and Calmar, or add upside/downside metrics only in the notebook.
+- Why this won: the Whitmore mandate has an explicit drawdown tolerance, so a downside-only dispersion metric is more aligned with the grading rubric and the client brief than a pure total-volatility lens. Sortino complements Sharpe and Calmar by penalizing only downside deviation while keeping the report and deck interpretable for non-technical readers. Source: Sortino & Price (1994), https://jpm.pm-research.com/content/20/4/59.
+
+- Decision: implement the regime overlay as a regime-conditional vol budget, not as hard-coded regime-specific asset weights.
+- Alternatives considered: directly force state-specific safe-haven allocations, or add manual asset-level overrides inside the optimizer when the HMM enters stress.
+- Why this won: the assignment explicitly forbids a hard-coded safe-haven switch. Tightening the optimizer's risk envelope by regime keeps the solve causal and IPS-aware while allowing the optimizer to choose the mix inside the existing TAA bands. This preserves the "no hard-coded safe haven" rule and is easier to defend in the report.
+
+- Decision: implement a drawdown-clip guardrail that halves the active vol budget after a trailing six-month drawdown breach and releases only after recovery.
+- Alternatives considered: no realized-P&L overlay at all, or direct liquidation rules tied to specific sleeves.
+- Why this won: the guardrail is a monotonic function of realized returns observed up to decision time `t`, so it is causally safe and operationally close to how real risk desks tighten risk after losses. It changes only the risk envelope, not the allowed asset set. Source: Grossman & Zhou (1993), https://doi.org/10.1111/j.1467-9965.1993.tb00044.x.
+
+- Decision: keep the flat 7% vol budget as a tested sweep point, but not as the default recommendation.
+- Alternatives considered: replace the 10% default entirely with a flat 7% or 8% target.
+- Why this won: a flat tight budget can reduce upside capture in benign risk-on regimes, while the regime-conditioned overlay preserves higher risk capacity when the macro state is calmer. In the corrected canonical sweep, the flat 8% budget produced the smallest drawdown breach while keeping return and DSR superior to the benchmarks, so 7% remained a useful stress test rather than the preferred submission.
+
+- Decision: retain the OpenMP/Torch bootstrap fix and document it again in the final run log.
+- Alternatives considered: remove the bootstrap once the TimesFM sweep completed, or rely on shell-level environment exports.
+- Why this won: the full `--timesfm` path must remain runnable from a clean checkout. The duplicate-runtime workaround in `taa_project/__init__.py` and `taa_project/main.py` is still required for stable Torch import ordering on this machine. Sources: https://github.com/pytorch/pytorch/issues/6027 and https://scikit-learn.org/stable/faq.html#why-do-i-sometimes-get-a-crash-freeze-with-n-jobs-1-under-osx-or-linux.
+
+- Decision: choose `timesfm_vb08` as the submission configuration after the corrected canonical six-run sweep.
+- Alternatives considered: submit the no-TimesFM baseline, the 10% or 7% flat-budget TimesFM variants, or the regime-vol / drawdown-overlay variants.
+- Why this won: none of the six canonical configurations met the IPS max-drawdown tolerance of 25%, so Task 7 fell to the "smallest MDD breach" branch. `timesfm_vb08` produced the lowest realized max drawdown at `-27.46%`, stayed below the 15% volatility ceiling, exceeded the 8% return objective, and beat `BM2` on DSR. The regime-vol and regime+DD overlays changed realized weights but did not improve on the flat 8% budget's drawdown outcome, so `timesfm_vb08` was the strongest defensible submission.
+
+## 2026-04-19 — TimesFM / OpenMP runtime
+- Decision: pre-import `torch` in both `taa_project/__init__.py` and `taa_project/main.py`, while setting `KMP_DUPLICATE_LIB_OK=TRUE`, `OMP_NUM_THREADS=1`, and `MKL_NUM_THREADS=1` before any SciPy / scikit-learn / hmmlearn imports occur.
+- Alternatives considered: leave the runtime as-is and rely on users to export OpenMP environment variables manually, or isolate the TimesFM path into a separate subprocess immediately.
+- Why this won: the end-to-end `--timesfm` path needs a deterministic, repo-local fix for the duplicate OpenMP runtime crash that occurs when Intel MKL-linked libraries and Torch initialize different OpenMP implementations in the same process. Preloading Torch first is the least invasive workaround and matches the documented behavior in the PyTorch duplicate-runtime issue and the scikit-learn OpenMP FAQ: https://github.com/pytorch/pytorch/issues/6027 and https://scikit-learn.org/stable/faq.html#why-do-i-sometimes-get-a-crash-freeze-with-n-jobs-1-under-osx-or-linux.
+
 ## 2026-04-18 — Promote `taa_scaffold/` into `taa_project/`
 - Decision: rename the untracked scaffold into a top-level Python package named `taa_project/`.
 - Alternatives considered: keep the scaffold name and wrap it later, or rebuild a new package and copy code across selectively.

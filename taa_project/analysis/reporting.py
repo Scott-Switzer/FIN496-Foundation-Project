@@ -52,6 +52,7 @@ from taa_project.analysis.common import (
     calmar_ratio,
     cost_drag_per_year,
     cumulative_growth_index,
+    disclosed_trial_count,
     decision_weights_to_daily_holdings,
     decision_weights_to_daily_target,
     deflated_sharpe_ratio,
@@ -63,6 +64,7 @@ from taa_project.analysis.common import (
     max_drawdown,
     rolling_annualized_volatility,
     sharpe_ratio,
+    sortino_ratio,
     simple_asset_returns,
     tier_map,
     tier_weight_frame,
@@ -87,6 +89,8 @@ from taa_project.config import (
     VOL_CEILING,
 )
 from taa_project.data_loader import log_returns
+from taa_project.optimizer.cvxpy_opt import EnsembleConfig
+from taa_project.pandas_utils import forward_propagate
 from taa_project.saa.build_saa import (
     DIAGONAL_FLOOR as SAA_DIAGONAL_FLOOR,
     DEFAULT_END as SAA_DEFAULT_END,
@@ -419,6 +423,7 @@ def build_saa_method_comparison(
                 "annualized_volatility": annualized_volatility(returns_df["portfolio_return"]),
                 "max_drawdown": max_drawdown(returns_df["portfolio_return"]),
                 "sharpe": sharpe_ratio(returns_df["portfolio_return"]),
+                "sortino": sortino_ratio(returns_df["portfolio_return"], mar=RISK_FREE_RATE),
                 "calmar": calmar_ratio(returns_df["portfolio_return"]),
                 "turnover_pa": turnover_per_year(float(returns_df["turnover"].sum()), returns_df.index),
                 "cost_drag_pa": cost_drag_per_year(float(returns_df["turnover_cost"].sum()), returns_df.index),
@@ -438,12 +443,18 @@ def _load_attribution_outputs(
     end: str,
     folds: int,
     use_timesfm: bool,
+    vol_budget: float,
+    ensemble_config: EnsembleConfig | None,
     output_dir: Path,
 ) -> dict[str, pd.DataFrame]:
     """Load attribution outputs, building them first when missing.
 
     Inputs:
     - `start`, `end`, `folds`, `use_timesfm`: attribution rerun settings.
+    - `vol_budget`: internal ex-ante annualized volatility target reused by
+      attribution reruns when outputs are missing.
+    - `ensemble_config`: optional baseline ensemble configuration reused by
+      attribution reruns when outputs are missing.
     - `output_dir`: directory containing attribution artifacts.
 
     Outputs:
@@ -462,7 +473,15 @@ def _load_attribution_outputs(
         "per_signal": output_dir / "attribution_per_signal.csv",
     }
     if not all(path.exists() for path in required_paths.values()):
-        build_attribution(start=start, end=end, folds=folds, use_timesfm=use_timesfm, output_dir=output_dir)
+        build_attribution(
+            start=start,
+            end=end,
+            folds=folds,
+            use_timesfm=use_timesfm,
+            vol_budget=vol_budget,
+            ensemble_config=ensemble_config,
+            output_dir=output_dir,
+        )
 
     return {
         "saa_vs_bm2": pd.read_csv(required_paths["saa_vs_bm2"]),
@@ -601,6 +620,7 @@ def _portfolio_metrics_table(
                 "max_drawdown": max_drawdown(returns),
                 "var_95_historical": historical_var_95(returns),
                 "sharpe_rf_2pct": sharpe_ratio(returns, risk_free_rate=RISK_FREE_RATE),
+                "sortino_rf_2pct": sortino_ratio(returns, mar=RISK_FREE_RATE),
                 "calmar": calmar_ratio(returns),
                 "turnover_pa": turnover_per_year(float(turnover_series.sum()), returns.index),
                 "hit_rate": hit_rate(returns),
@@ -644,6 +664,7 @@ def _per_fold_metrics(oos_returns: pd.DataFrame) -> pd.DataFrame:
                 "annualized_return": annualized_return(returns),
                 "annualized_volatility": annualized_volatility(returns),
                 "sharpe": sharpe_ratio(returns),
+                "sortino": sortino_ratio(returns, mar=RISK_FREE_RATE),
                 "max_drawdown": max_drawdown(returns),
                 "turnover_cost": float(block["turnover_cost"].sum()),
             }
@@ -757,6 +778,7 @@ def _build_trial_ledger(
     folds: int,
     per_signal: pd.DataFrame,
     saa_method_comparison: pd.DataFrame,
+    existing_trial_ledger: pd.DataFrame | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Build the required trial ledger and DSR summary tables.
 
@@ -836,7 +858,8 @@ def _build_trial_ledger(
             }
         )
 
-    n_trials = len(taa_returns)
+    existing_count = disclosed_trial_count(existing_trial_ledger)
+    n_trials = existing_count + len(rows) + len(saa_method_comparison)
     for row in rows:
         if str(row["variant_id"]).startswith("taa_"):
             row["DSR"] = deflated_sharpe_ratio(taa_returns[row["variant_id"]], n_trials)
@@ -866,6 +889,7 @@ def _build_trial_ledger(
             {
                 "timestamp": timestamp,
                 "n_taa_trials": n_trials,
+                "n_disclosed_trials": n_trials,
                 "baseline_variant_id": TAA_BASELINE_VARIANT_ID,
                 "baseline_sharpe": float(trial_ledger.loc[trial_ledger["variant_id"] == TAA_BASELINE_VARIANT_ID, "OOS_sharpe"].iloc[0]),
                 "baseline_dsr": float(trial_ledger.loc[trial_ledger["variant_id"] == TAA_BASELINE_VARIANT_ID, "DSR"].iloc[0]),
@@ -874,6 +898,57 @@ def _build_trial_ledger(
         ]
     )
     return trial_ledger, dsr_summary
+
+
+def refresh_dsr_disclosure(
+    output_dir: Path = OUTPUT_DIR,
+    trial_ledger_path: Path = TRIAL_LEDGER_CSV,
+) -> dict[str, float]:
+    """Refresh DSR-dependent artifacts after the trial ledger changes.
+
+    Inputs:
+    - `output_dir`: directory containing the run outputs to update.
+    - `trial_ledger_path`: disclosure ledger used for the DSR denominator.
+
+    Outputs:
+    - Dictionary with the refreshed `baseline_dsr` and `n_trials`.
+
+    Citation:
+    - Bailey & López de Prado (2014), Deflated Sharpe Ratio:
+      https://www.davidhbailey.com/dhbpapers/deflated-sharpe.pdf
+
+    Point-in-time safety:
+    - Safe. This is a post-run reporting refresh only.
+    """
+
+    n_trials = disclosed_trial_count(ledger_path=trial_ledger_path)
+    oos_returns_path = output_dir / "oos_returns.csv"
+    if not oos_returns_path.exists():
+        return {"baseline_dsr": float("nan"), "n_trials": float(n_trials)}
+    baseline_returns = pd.read_csv(oos_returns_path)["portfolio_return"]
+    baseline_dsr = float(deflated_sharpe_ratio(baseline_returns, n_trials=n_trials))
+
+    dsr_summary_path = output_dir / DSR_SUMMARY_FILENAME
+    if dsr_summary_path.exists():
+        dsr_summary = pd.read_csv(dsr_summary_path)
+    else:
+        dsr_summary = pd.DataFrame([{}])
+    if dsr_summary.empty:
+        dsr_summary = pd.DataFrame([{}])
+    dsr_summary.loc[0, "n_taa_trials"] = n_trials
+    dsr_summary.loc[0, "n_disclosed_trials"] = n_trials
+    dsr_summary.loc[0, "baseline_dsr"] = baseline_dsr
+    dsr_summary.to_csv(dsr_summary_path, index=False)
+
+    metrics_path = output_dir / PORTFOLIO_METRICS_FILENAME
+    if metrics_path.exists():
+        metrics = pd.read_csv(metrics_path)
+        taa_mask = metrics["portfolio"].eq("SAA+TAA")
+        if taa_mask.any():
+            metrics.loc[taa_mask, "dsr"] = baseline_dsr
+            metrics.to_csv(metrics_path, index=False)
+
+    return {"baseline_dsr": baseline_dsr, "n_trials": float(n_trials)}
 
 
 def _common_plot_window(panels: dict[str, object]) -> pd.Timestamp:
@@ -1076,7 +1151,7 @@ def _save_regime_shading_figure(panels: dict[str, object], figure_dir: Path) -> 
     """
 
     bm2_returns = panels["returns"]["BM2"].reindex(panels["regimes_daily"].index).dropna()
-    regime_series = panels["regimes_daily"].reindex(bm2_returns.index).ffill()
+    regime_series = forward_propagate(panels["regimes_daily"].reindex(bm2_returns.index))
     growth = cumulative_growth_index(bm2_returns)
 
     regime_colors = {"risk_on": "#d8f3dc", "neutral": "#fef3c7", "stress": "#fecaca"}
@@ -1178,6 +1253,8 @@ def build_reporting(
     end: str = "2025-12-31",
     folds: int = 5,
     use_timesfm: bool = False,
+    vol_budget: float = TARGET_VOL,
+    ensemble_config: EnsembleConfig | None = None,
     output_dir: Path = OUTPUT_DIR,
     figure_dir: Path = FIGURES_DIR,
 ) -> dict[str, object]:
@@ -1187,6 +1264,10 @@ def build_reporting(
     - `start`, `end`, `folds`: walk-forward settings reused if attribution
       outputs are missing.
     - `use_timesfm`: whether the baseline run used TimesFM.
+    - `vol_budget`: internal ex-ante annualized volatility target reused by
+      attribution reruns when needed.
+    - `ensemble_config`: optional baseline ensemble configuration reused by
+      attribution reruns when needed.
     - `output_dir`: destination directory for CSV artifacts.
     - `figure_dir`: destination directory for figure PNG files.
 
@@ -1208,15 +1289,28 @@ def build_reporting(
     REPORT_DIR.mkdir(parents=True, exist_ok=True)
 
     outputs = load_core_outputs(output_dir)
-    attribution = _load_attribution_outputs(start=start, end=end, folds=folds, use_timesfm=use_timesfm, output_dir=output_dir)
+    attribution = _load_attribution_outputs(
+        start=start,
+        end=end,
+        folds=folds,
+        use_timesfm=use_timesfm,
+        vol_budget=vol_budget,
+        ensemble_config=ensemble_config,
+        output_dir=output_dir,
+    )
     panels = _build_strategy_panels(outputs, output_dir=output_dir)
     saa_method_comparison, _ = build_saa_method_comparison(output_dir=output_dir)
+    if TRIAL_LEDGER_CSV.exists():
+        existing_trial_ledger = pd.read_csv(TRIAL_LEDGER_CSV)
+    else:
+        existing_trial_ledger = pd.DataFrame()
     trial_ledger, dsr_summary = _build_trial_ledger(
         output_dir=output_dir,
         use_timesfm=use_timesfm,
         folds=folds,
         per_signal=attribution["per_signal"],
         saa_method_comparison=saa_method_comparison,
+        existing_trial_ledger=existing_trial_ledger,
     )
     metrics = _portfolio_metrics_table(panels, trial_ledger)
     per_fold_metrics = _per_fold_metrics(outputs["oos_returns"])
@@ -1232,7 +1326,14 @@ def build_reporting(
     regime_allocations.to_csv(output_dir / REGIME_ALLOCATION_FILENAME, index=False)
     compliance.to_csv(output_dir / IPS_COMPLIANCE_FILENAME, index=False)
     dsr_summary.to_csv(output_dir / DSR_SUMMARY_FILENAME, index=False)
-    trial_ledger.to_csv(TRIAL_LEDGER_CSV, index=False)
+    trial_ledger_columns = list(dict.fromkeys(existing_trial_ledger.columns.tolist() + trial_ledger.columns.tolist()))
+    trial_ledger_frames = [frame for frame in (existing_trial_ledger, trial_ledger) if not frame.empty]
+    merged_trial_ledger = (
+        pd.concat([frame.reindex(columns=trial_ledger_columns) for frame in trial_ledger_frames], ignore_index=True)
+        if trial_ledger_frames
+        else pd.DataFrame(columns=trial_ledger_columns)
+    )
+    merged_trial_ledger.to_csv(TRIAL_LEDGER_CSV, index=False)
 
     figures = {
         "cumgrowth": _save_cumgrowth_figure(panels, figure_dir),
@@ -1263,6 +1364,8 @@ def main() -> None:
     - `--start`, `--end`, `--folds`: walk-forward settings reused when
       attribution outputs are missing.
     - `--timesfm`: whether the baseline run used TimesFM.
+    - `--vol-budget`: internal ex-ante annualized volatility target reused by
+      attribution dependency rebuilds.
     - `--output-dir`: destination directory for CSV artifacts.
     - `--figure-dir`: destination directory for figure PNG files.
 
@@ -1281,6 +1384,7 @@ def main() -> None:
     parser.add_argument("--end", default="2025-12-31", help="Last OOS date for attribution dependency rebuilds.")
     parser.add_argument("--folds", type=int, default=5, help="Number of walk-forward folds.")
     parser.add_argument("--timesfm", action="store_true", help="Enable the optional TimesFM layer in dependency rebuilds.")
+    parser.add_argument("--vol-budget", type=float, default=TARGET_VOL, help="Internal ex-ante vol target used by the TAA optimizer.")
     parser.add_argument("--output-dir", default=str(OUTPUT_DIR), help="Destination directory for CSV outputs.")
     parser.add_argument("--figure-dir", default=str(FIGURES_DIR), help="Destination directory for figure PNG files.")
     args = parser.parse_args()
@@ -1290,6 +1394,7 @@ def main() -> None:
         end=args.end,
         folds=args.folds,
         use_timesfm=args.timesfm,
+        vol_budget=args.vol_budget,
         output_dir=Path(args.output_dir),
         figure_dir=Path(args.figure_dir),
     )

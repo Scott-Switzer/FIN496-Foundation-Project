@@ -13,6 +13,7 @@ Point-in-time safety:
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 
 import pandas as pd
@@ -23,6 +24,7 @@ from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import cm
 from reportlab.platypus import Image, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
+from taa_project.analysis.config_comparison import CONFIG_COMPARISON_FILENAME, SUBMISSION_SELECTION_FILENAME
 from taa_project.analysis.reporting import DSR_SUMMARY_FILENAME, PORTFOLIO_METRICS_FILENAME
 from taa_project.config import FIGURES_DIR, OUTPUT_DIR, REPORT_DIR
 
@@ -166,6 +168,10 @@ def build_deck(
     metrics = pd.read_csv(output_dir / PORTFOLIO_METRICS_FILENAME)
     dsr_summary = pd.read_csv(output_dir / DSR_SUMMARY_FILENAME).iloc[0]
     attribution = pd.read_csv(output_dir / "attribution_per_signal.csv")
+    comparison_path = output_dir / CONFIG_COMPARISON_FILENAME
+    selection_path = output_dir / SUBMISSION_SELECTION_FILENAME
+    comparison = pd.read_csv(comparison_path) if comparison_path.exists() else pd.DataFrame()
+    selection = json.loads(selection_path.read_text(encoding="utf-8")) if selection_path.exists() else None
 
     pdf_path = report_dir / DECK_PDF_FILENAME
     styles = _styles()
@@ -223,10 +229,39 @@ def build_deck(
             ),
         ],
         [
+            Paragraph("Risk Overlays & Vol-Budget Sweep", styles["DeckHeading"]),
+            Image(str(figure_dir / "config_comparison.png"), width=22.0 * cm, height=10.0 * cm)
+            if (figure_dir / "config_comparison.png").exists()
+            else Paragraph("Config comparison figure not available for this output directory.", styles["DeckBody"]),
+            Spacer(1, 0.2 * cm),
+            *(
+                _bullet_list(
+                    [
+                        f"Selected configuration: {selection['run_id']} ({selection['display_name']}).",
+                        f"Best tested max drawdown: {100.0 * float(selection['max_dd']):.2f}% across {int(selection['n_tested_configurations'])} canonical configurations.",
+                        "TimesFM plus an 8% internal vol budget produced the smallest drawdown breach while still beating BM2 on DSR.",
+                        "Overlays only tighten the risk envelope; they do not hard-code a safe-haven allocation.",
+                    ],
+                    styles,
+                )
+                if selection is not None
+                else _bullet_list(
+                    [
+                        "Six canonical configurations are compared here once the sweep artifacts are present.",
+                        "Overlays only tighten the risk envelope; they do not hard-code a safe-haven allocation.",
+                    ],
+                    styles,
+                )
+            ),
+        ],
+        [
             Paragraph("Walk-Forward Design", styles["DeckHeading"]),
             Image(str(figure_dir / "fig06_oos_folds.png"), width=22.0 * cm, height=9.0 * cm),
             Spacer(1, 0.2 * cm),
-            Paragraph(f"Deflated Sharpe Ratio: {dsr_summary['baseline_dsr']:.3f} across {int(dsr_summary['n_taa_trials'])} disclosed TAA trials.", styles["DeckBody"]),
+            Paragraph(
+                f"Deflated Sharpe Ratio: {dsr_summary['baseline_dsr']:.3f} across {int(dsr_summary.get('n_disclosed_trials', dsr_summary.get('n_taa_trials', 0)))} disclosed trials.",
+                styles["DeckBody"],
+            ),
         ],
         [
             Paragraph("Cumulative Growth", styles["DeckHeading"]),
@@ -234,7 +269,19 @@ def build_deck(
         ],
         [
             Paragraph("Metrics Table", styles["DeckHeading"]),
-            _compact_table(metrics[["portfolio", "annualized_return", "annualized_volatility", "sharpe_rf_2pct", "max_drawdown", "cost_drag_pa"]]),
+            _compact_table(
+                metrics[
+                    [
+                        "portfolio",
+                        "annualized_return",
+                        "annualized_volatility",
+                        "sharpe_rf_2pct",
+                        "sortino_rf_2pct",
+                        "calmar",
+                        "max_drawdown",
+                    ]
+                ].rename(columns={"sharpe_rf_2pct": "Sharpe", "sortino_rf_2pct": "Sortino", "calmar": "Calmar"})
+            ),
         ],
         [
             Paragraph("Attribution", styles["DeckHeading"]),
@@ -264,7 +311,12 @@ def build_deck(
             * _bullet_list(
                 [
                     f"SAA+TAA annualized return: {100.0 * taa['annualized_return']:.2f}% versus {100.0 * saa['annualized_return']:.2f}% for SAA and {100.0 * bm2['annualized_return']:.2f}% for BM2.",
-                    "Use the risk-parity SAA as the policy anchor and keep the TAA layer conditional on continuing OOS superiority after costs and DSR adjustment.",
+                    (
+                        f"Submitted configuration: {selection['run_id']}. "
+                        f"Max drawdown {'passes' if selection['pass_mdd'] else 'misses'} the -25% IPS tolerance at {100.0 * float(selection['max_dd']):.2f}%."
+                        if selection is not None
+                        else "Use the risk-parity SAA as the policy anchor and keep the TAA layer conditional on continuing OOS superiority after costs and DSR adjustment."
+                    ),
                     "Track turnover and stressed-regime attribution before expanding risk budget to the overlay.",
                 ],
                 styles,

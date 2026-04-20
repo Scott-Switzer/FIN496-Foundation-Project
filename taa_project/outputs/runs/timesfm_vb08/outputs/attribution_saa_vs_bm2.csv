@@ -1,0 +1,16 @@
+comparison,grouping,component,total_contribution
+saa_vs_bm2,asset,SPXT,-0.299262771632206
+saa_vs_bm2,asset,FTSE100,0.06022018502267434
+saa_vs_bm2,asset,LBUSTRUU,0.020005456200519307
+saa_vs_bm2,asset,BROAD_TIPS,0.025708284167558028
+saa_vs_bm2,asset,B3REITT,-0.10223830477059055
+saa_vs_bm2,asset,XAU,0.10328266166818828
+saa_vs_bm2,asset,SILVER_FUT,0.038236125125174034
+saa_vs_bm2,asset,NIKKEI225,0.012627639602720378
+saa_vs_bm2,asset,CSI300_CHINA,0.11615738917001596
+saa_vs_bm2,asset,BITCOIN,0.9879538032122965
+saa_vs_bm2,asset,CHF_FRANC,0.008856693151212318
+saa_vs_bm2,tier,Core,-0.19332884624145433
+saa_vs_bm2,tier,Non-Traditional,0.9968104963635088
+saa_vs_bm2,tier,Satellite,0.1680655107955081
+saa_vs_bm2,total,total,0.9715471609175627

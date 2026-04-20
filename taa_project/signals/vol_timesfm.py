@@ -27,6 +27,8 @@ Point-in-time safety:
 from __future__ import annotations
 
 import importlib.util
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 
@@ -34,6 +36,7 @@ import pandas as pd
 DEFAULT_MAX_CONTEXT = 1024
 DEFAULT_MAX_HORIZON = 256
 DEFAULT_MIN_CONTEXT = 64
+DEFAULT_BATCH_SIZE = 1
 
 
 def timesfm_is_available() -> bool:
@@ -140,6 +143,7 @@ class TimesFMForecaster:
         series_dict: dict[str, pd.Series | np.ndarray],
         horizon: int = 21,
         min_context: int = DEFAULT_MIN_CONTEXT,
+        batch_size: int = DEFAULT_BATCH_SIZE,
     ) -> dict[str, dict[str, np.ndarray]]:
         """Forecast multiple asset return series in one TimesFM batch.
 
@@ -147,6 +151,9 @@ class TimesFMForecaster:
         - `series_dict`: mapping from ticker to historical return sequence.
         - `horizon`: forecast horizon in trading days.
         - `min_context`: minimum history length required to send a series.
+        - `batch_size`: number of assets per TimesFM call. The default is a
+          conservative CPU-safe chunk size used to avoid local Torch/OpenMP
+          instability on this desktop runtime.
 
         Outputs:
         - Mapping from ticker to forecast payload with `point` and `quantiles`.
@@ -172,14 +179,18 @@ class TimesFMForecaster:
         if not inputs:
             return {}
 
-        point_forecast, quantile_forecast = self.model.forecast(horizon=horizon, inputs=inputs)
-        return {
-            ticker: {
-                "point": np.asarray(point_forecast[index], dtype=float),
-                "quantiles": np.asarray(quantile_forecast[index], dtype=float),
-            }
-            for index, ticker in enumerate(valid_tickers)
-        }
+        safe_batch_size = max(int(batch_size), 1)
+        forecasts: dict[str, dict[str, np.ndarray]] = {}
+        for start in range(0, len(inputs), safe_batch_size):
+            batch_inputs = inputs[start : start + safe_batch_size]
+            batch_tickers = valid_tickers[start : start + safe_batch_size]
+            point_forecast, quantile_forecast = self.model.forecast(horizon=horizon, inputs=batch_inputs)
+            for index, ticker in enumerate(batch_tickers):
+                forecasts[ticker] = {
+                    "point": np.asarray(point_forecast[index], dtype=float),
+                    "quantiles": np.asarray(quantile_forecast[index], dtype=float),
+                }
+        return forecasts
 
     @staticmethod
     def expected_return(forecast: dict[str, np.ndarray], horizon_days: int = 21) -> float:
@@ -261,6 +272,8 @@ def compute_vol_and_direction_signals(
     forecaster: TimesFMForecaster,
     horizon: int = 21,
     min_context: int = DEFAULT_MIN_CONTEXT,
+    cache_dir: Path | None = None,
+    cache_key_prefix: str = "use_timesfm_1",
 ) -> pd.DataFrame:
     """Compute TimesFM return, volatility, and direction signals at date `t`.
 
@@ -271,6 +284,11 @@ def compute_vol_and_direction_signals(
     - `forecaster`: initialized `TimesFMForecaster`.
     - `horizon`: forecast horizon in trading days.
     - `min_context`: minimum history length required for a forecast.
+    - `cache_dir`: optional directory for cached per-decision TimesFM signal
+      CSVs shared across repeated sweeps.
+    - `cache_key_prefix`: cache namespace token. This must include whether the
+      TimesFM layer was enabled so repeated sweeps cannot cross-load the wrong
+      cached forecast file.
 
     Outputs:
     - Dataframe indexed by ticker with columns
@@ -285,6 +303,14 @@ def compute_vol_and_direction_signals(
     Point-in-time safety:
     - Safe. Each series is truncated to `decision_date` before the batch call.
     """
+
+    if cache_dir is not None:
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        cache_path = cache_dir / (
+            f"timesfm_signals_{cache_key_prefix}_{pd.Timestamp(decision_date):%Y%m%d}_h{horizon}.csv"
+        )
+        if cache_path.exists():
+            return pd.read_csv(cache_path, index_col="ticker")
 
     truncated_histories: dict[str, pd.Series] = {}
     for column in returns.columns:
@@ -305,5 +331,9 @@ def compute_vol_and_direction_signals(
         )
 
     if not rows:
-        return pd.DataFrame(columns=["mu_ann", "sigma_ann_fcst", "dir_score"])
-    return pd.DataFrame(rows).set_index("ticker").sort_index()
+        frame = pd.DataFrame(columns=["mu_ann", "sigma_ann_fcst", "dir_score"])
+    else:
+        frame = pd.DataFrame(rows).set_index("ticker").sort_index()
+    if cache_dir is not None:
+        frame.to_csv(cache_path, index_label="ticker")
+    return frame

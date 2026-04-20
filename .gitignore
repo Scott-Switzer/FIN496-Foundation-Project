@@ -10,3 +10,15 @@ venv/
 *.pyd
 .DS_Store
 whitmore_taa_submission.zip
+taa_project/outputs/runs/*/outputs/master_data_reference.csv
+taa_project/outputs/runs/*/outputs/asset_log_returns.csv
+taa_project/outputs/runs/*/outputs/asset_availability.csv
+taa_project/outputs/runs/*/outputs/asset_gap_*.csv
+taa_project/outputs/runs/*/outputs/asset_inception_dates.csv
+taa_project/outputs/runs/*/outputs/fred_features_lagged.csv
+taa_project/outputs/runs/*/outputs/bm1_returns.csv
+taa_project/outputs/runs/*/outputs/bm1_weights.csv
+taa_project/outputs/runs/*/outputs/bm2_returns.csv
+taa_project/outputs/runs/*/outputs/bm2_weights.csv
+taa_project/outputs/runs/*/outputs/saa_returns.csv
+taa_project/outputs/runs/*/outputs/saa_weights.csv

@@ -263,6 +263,7 @@ def _build_markdown(inputs: dict[str, object]) -> str:
     taa = metrics.loc["SAA+TAA"]
     bm2 = metrics.loc["BM2"]
     mode_text = "--timesfm" if int(dsr_summary["timesfm_enabled"]) == 1 else "--no-timesfm"
+    disclosed_trials = int(dsr_summary.get("n_disclosed_trials", dsr_summary.get("n_taa_trials", 0)))
     comparison = inputs["config_comparison"]
     selection = inputs["submission_selection"]
     strategy_comparison = comparison.loc[~comparison["Run"].isin(["BM1", "BM2"])].copy() if not comparison.empty else pd.DataFrame()
@@ -276,7 +277,7 @@ def _build_markdown(inputs: dict[str, object]) -> str:
         "## Executive Summary",
         f"- The final implementation uses constrained risk parity for SAA and a monthly cvxpy TAA overlay driven by HMM regime, Faber trend, Antonacci-style ADM, and an optional TimesFM layer. This report reflects run mode `{mode_text}`. [Sources: `taa_project/saa/build_saa.py`, `taa_project/backtest/walkforward.py`, `taa_project/analysis/reporting.py`]",
         f"- Net annualized return is {_format_pct(taa['annualized_return'])} for `SAA+TAA` versus {_format_pct(saa['annualized_return'])} for `SAA` and {_format_pct(bm2['annualized_return'])} for `BM2`. [Source: `taa_project/outputs/{PORTFOLIO_METRICS_FILENAME}`]",
-        f"- Net Sharpe improves by {taa_vs_bm2_sharpe:.2f} versus `BM2`, while the Deflated Sharpe Ratio is {dsr_summary['baseline_dsr']:.3f} across {int(dsr_summary['n_taa_trials'])} disclosed TAA trials. [Sources: `taa_project/outputs/{PORTFOLIO_METRICS_FILENAME}`, `taa_project/outputs/{DSR_SUMMARY_FILENAME}`, `TRIAL_LEDGER.csv`]",
+        f"- Net Sharpe improves by {taa_vs_bm2_sharpe:.2f} versus `BM2`, while the Deflated Sharpe Ratio is {dsr_summary['baseline_dsr']:.3f} across {disclosed_trials} disclosed trials in `TRIAL_LEDGER.csv`. [Sources: `taa_project/outputs/{PORTFOLIO_METRICS_FILENAME}`, `taa_project/outputs/{DSR_SUMMARY_FILENAME}`, `TRIAL_LEDGER.csv`]",
         f"- Daily IPS audit produced {compliance_rows} violations across the strategy target schedules. [Source: `taa_project/outputs/{IPS_COMPLIANCE_FILENAME}`]",
         "",
         "## SAA Construction and IPS Compliance",
@@ -304,10 +305,10 @@ def _build_markdown(inputs: dict[str, object]) -> str:
                 f"- Six canonical TAA configurations were tested: flat vol budgets at 10%, 8%, and 7%, plus a regime-conditional vol budget and a drawdown-clip overlay stacked on that regime overlay. [Source: `taa_project/outputs/{CONFIG_COMPARISON_FILENAME}`]",
                 f"- The lowest drawdown among the tested TAA configurations was {_format_pct(best_row['Max DD'])} in `{best_row['Run']}`. [Source: `taa_project/outputs/{CONFIG_COMPARISON_FILENAME}`]",
                 "- The regime overlay tightens the risk envelope without hard-coding safe-haven weights, and the drawdown guardrail further halves the active vol budget after sufficiently deep realized losses. [Sources: `taa_project/backtest/walkforward.py`, `taa_project/signals/dd_guardrail.py`]",
-                "- All six canonical variants converged to the same realized OOS portfolio path over this sample, so the final submission defaults to the simplest tied configuration rather than claiming incremental value from TimesFM or the overlays. [Sources: `taa_project/outputs/config_comparison.csv`, `taa_project/outputs/submission_selection.json`]"
+                f"- The canonical sweep materially changed realized outcomes. The selected submission configuration is `{selection['run_id']}` with {_format_pct(selection['max_dd'])} max drawdown and DSR {selection['deflated_sharpe']:.3f}. [Sources: `taa_project/outputs/config_comparison.csv`, `taa_project/outputs/submission_selection.json`]"
                 if not strategy_comparison.empty
                 and strategy_comparison[["Ann. Return", "Ann. Vol", "Max DD", "Sharpe", "Sortino", "Calmar"]].nunique(dropna=False).max() == 1
-                else "- The configuration sweep materially changed the realized risk/return path across at least one tested overlay variant. [Source: `taa_project/outputs/config_comparison.csv`]",
+                else "- The configuration sweep materially changed the realized risk/return path across the tested overlay variants. [Source: `taa_project/outputs/config_comparison.csv`]",
                 "",
             ]
         )
@@ -363,7 +364,7 @@ def _build_markdown(inputs: dict[str, object]) -> str:
         [
             "## Limitations and Failure Modes",
             "- The HMM is still a retrospective statistical classifier and state meanings can drift over time. [Source: `taa_project/signals/regime_hmm.py`]",
-            "- TimesFM is not finance-native. The runtime path is now available, but the canonical sweep found no realized portfolio difference between the no-TimesFM baseline and the TimesFM-tagged variants over this sample, so the simpler baseline remained the submission choice. [Sources: `taa_project/signals/vol_timesfm.py`, `taa_project/outputs/config_comparison.csv`, `taa_project/outputs/submission_selection.json`]",
+            "- TimesFM is not finance-native. Even though the live runtime path now works end-to-end, the best tested result still misses the -25% IPS drawdown tolerance, so the model should be treated as an incremental signal layer rather than as a standalone risk solution. [Sources: `taa_project/signals/vol_timesfm.py`, `taa_project/outputs/config_comparison.csv`, `taa_project/outputs/submission_selection.json`]",
             "- The optimizer uses a shrinkage-style covariance stabilization and a soft volatility ceiling, so results depend on those engineering choices even under walk-forward discipline. [Source: `taa_project/backtest/walkforward.py`]",
             "",
             "## Recommendation",

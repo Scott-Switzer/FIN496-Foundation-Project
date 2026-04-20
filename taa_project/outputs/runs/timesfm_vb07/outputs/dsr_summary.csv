@@ -1,2 +1,2 @@
-timestamp,n_taa_trials,baseline_variant_id,baseline_sharpe,baseline_dsr,timesfm_enabled
-2026-04-20T00:17:37.492166+00:00,5,taa_baseline,0.9535975491028562,1.0,1
+timestamp,n_taa_trials,n_disclosed_trials,baseline_variant_id,baseline_sharpe,baseline_dsr,timesfm_enabled
+2026-04-20T02:43:22.832014+00:00,138,138,taa_baseline,1.056351186119438,0.9963683281447484,1

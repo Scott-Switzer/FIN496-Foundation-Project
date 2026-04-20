@@ -239,7 +239,7 @@ def build_deck(
                     [
                         f"Selected configuration: {selection['run_id']} ({selection['display_name']}).",
                         f"Best tested max drawdown: {100.0 * float(selection['max_dd']):.2f}% across {int(selection['n_tested_configurations'])} canonical configurations.",
-                        "All six canonical variants converged to the same realized OOS portfolio path, so the baseline was retained as the simplest tied winner.",
+                        "TimesFM plus an 8% internal vol budget produced the smallest drawdown breach while still beating BM2 on DSR.",
                         "Overlays only tighten the risk envelope; they do not hard-code a safe-haven allocation.",
                     ],
                     styles,
@@ -258,7 +258,10 @@ def build_deck(
             Paragraph("Walk-Forward Design", styles["DeckHeading"]),
             Image(str(figure_dir / "fig06_oos_folds.png"), width=22.0 * cm, height=9.0 * cm),
             Spacer(1, 0.2 * cm),
-            Paragraph(f"Deflated Sharpe Ratio: {dsr_summary['baseline_dsr']:.3f} across {int(dsr_summary['n_taa_trials'])} disclosed TAA trials.", styles["DeckBody"]),
+            Paragraph(
+                f"Deflated Sharpe Ratio: {dsr_summary['baseline_dsr']:.3f} across {int(dsr_summary.get('n_disclosed_trials', dsr_summary.get('n_taa_trials', 0)))} disclosed trials.",
+                styles["DeckBody"],
+            ),
         ],
         [
             Paragraph("Cumulative Growth", styles["DeckHeading"]),

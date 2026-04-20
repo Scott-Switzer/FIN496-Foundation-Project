@@ -39,7 +39,7 @@ import numpy as np
 import pandas as pd
 
 from taa_project.analysis.attribution import build_attribution
-from taa_project.analysis.reporting import build_reporting
+from taa_project.analysis.reporting import build_reporting, refresh_dsr_disclosure
 from taa_project.backtest.walkforward import run_walkforward
 from taa_project.benchmarks import build_benchmarks
 from taa_project.config import (
@@ -409,6 +409,7 @@ def run_pipeline(
         output_dir=output_dir,
         metrics=reporting_artifacts["metrics"],
     )
+    refresh_dsr_disclosure(output_dir=output_dir, trial_ledger_path=TRIAL_LEDGER_CSV)
 
     ips_compliance = reporting_artifacts["ips_compliance"]
     if not ips_compliance.empty:

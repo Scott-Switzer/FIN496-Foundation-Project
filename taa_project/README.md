@@ -69,4 +69,4 @@ The consolidated comparison is written to `taa_project/outputs/config_comparison
 
 ## Known Limitations
 
-- Over the 2003-01-01 to 2025-12-31 evaluation window, no tested long-only configuration satisfying the IPS allocation constraints achieved the IPS max-drawdown tolerance of `-25%`. The submitted `baseline` configuration is the closest tested variant by drawdown while still beating both benchmarks on return and staying below the 15% volatility ceiling.
+- Over the 2003-01-01 to 2025-12-31 evaluation window, no tested long-only configuration satisfying the IPS allocation constraints achieved the IPS max-drawdown tolerance of `-25%`. The selected `timesfm_vb08` submission is the closest tested variant by drawdown at `-27.46%` while still beating both benchmarks on return and staying below the 15% volatility ceiling.

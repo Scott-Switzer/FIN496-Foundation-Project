@@ -52,6 +52,7 @@ from taa_project.analysis.common import (
     calmar_ratio,
     cost_drag_per_year,
     cumulative_growth_index,
+    disclosed_trial_count,
     decision_weights_to_daily_holdings,
     decision_weights_to_daily_target,
     deflated_sharpe_ratio,
@@ -777,6 +778,7 @@ def _build_trial_ledger(
     folds: int,
     per_signal: pd.DataFrame,
     saa_method_comparison: pd.DataFrame,
+    existing_trial_ledger: pd.DataFrame | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Build the required trial ledger and DSR summary tables.
 
@@ -856,7 +858,8 @@ def _build_trial_ledger(
             }
         )
 
-    n_trials = len(taa_returns)
+    existing_count = disclosed_trial_count(existing_trial_ledger)
+    n_trials = existing_count + len(rows) + len(saa_method_comparison)
     for row in rows:
         if str(row["variant_id"]).startswith("taa_"):
             row["DSR"] = deflated_sharpe_ratio(taa_returns[row["variant_id"]], n_trials)
@@ -886,6 +889,7 @@ def _build_trial_ledger(
             {
                 "timestamp": timestamp,
                 "n_taa_trials": n_trials,
+                "n_disclosed_trials": n_trials,
                 "baseline_variant_id": TAA_BASELINE_VARIANT_ID,
                 "baseline_sharpe": float(trial_ledger.loc[trial_ledger["variant_id"] == TAA_BASELINE_VARIANT_ID, "OOS_sharpe"].iloc[0]),
                 "baseline_dsr": float(trial_ledger.loc[trial_ledger["variant_id"] == TAA_BASELINE_VARIANT_ID, "DSR"].iloc[0]),
@@ -894,6 +898,57 @@ def _build_trial_ledger(
         ]
     )
     return trial_ledger, dsr_summary
+
+
+def refresh_dsr_disclosure(
+    output_dir: Path = OUTPUT_DIR,
+    trial_ledger_path: Path = TRIAL_LEDGER_CSV,
+) -> dict[str, float]:
+    """Refresh DSR-dependent artifacts after the trial ledger changes.
+
+    Inputs:
+    - `output_dir`: directory containing the run outputs to update.
+    - `trial_ledger_path`: disclosure ledger used for the DSR denominator.
+
+    Outputs:
+    - Dictionary with the refreshed `baseline_dsr` and `n_trials`.
+
+    Citation:
+    - Bailey & López de Prado (2014), Deflated Sharpe Ratio:
+      https://www.davidhbailey.com/dhbpapers/deflated-sharpe.pdf
+
+    Point-in-time safety:
+    - Safe. This is a post-run reporting refresh only.
+    """
+
+    n_trials = disclosed_trial_count(ledger_path=trial_ledger_path)
+    oos_returns_path = output_dir / "oos_returns.csv"
+    if not oos_returns_path.exists():
+        return {"baseline_dsr": float("nan"), "n_trials": float(n_trials)}
+    baseline_returns = pd.read_csv(oos_returns_path)["portfolio_return"]
+    baseline_dsr = float(deflated_sharpe_ratio(baseline_returns, n_trials=n_trials))
+
+    dsr_summary_path = output_dir / DSR_SUMMARY_FILENAME
+    if dsr_summary_path.exists():
+        dsr_summary = pd.read_csv(dsr_summary_path)
+    else:
+        dsr_summary = pd.DataFrame([{}])
+    if dsr_summary.empty:
+        dsr_summary = pd.DataFrame([{}])
+    dsr_summary.loc[0, "n_taa_trials"] = n_trials
+    dsr_summary.loc[0, "n_disclosed_trials"] = n_trials
+    dsr_summary.loc[0, "baseline_dsr"] = baseline_dsr
+    dsr_summary.to_csv(dsr_summary_path, index=False)
+
+    metrics_path = output_dir / PORTFOLIO_METRICS_FILENAME
+    if metrics_path.exists():
+        metrics = pd.read_csv(metrics_path)
+        taa_mask = metrics["portfolio"].eq("SAA+TAA")
+        if taa_mask.any():
+            metrics.loc[taa_mask, "dsr"] = baseline_dsr
+            metrics.to_csv(metrics_path, index=False)
+
+    return {"baseline_dsr": baseline_dsr, "n_trials": float(n_trials)}
 
 
 def _common_plot_window(panels: dict[str, object]) -> pd.Timestamp:
@@ -1245,12 +1300,17 @@ def build_reporting(
     )
     panels = _build_strategy_panels(outputs, output_dir=output_dir)
     saa_method_comparison, _ = build_saa_method_comparison(output_dir=output_dir)
+    if TRIAL_LEDGER_CSV.exists():
+        existing_trial_ledger = pd.read_csv(TRIAL_LEDGER_CSV)
+    else:
+        existing_trial_ledger = pd.DataFrame()
     trial_ledger, dsr_summary = _build_trial_ledger(
         output_dir=output_dir,
         use_timesfm=use_timesfm,
         folds=folds,
         per_signal=attribution["per_signal"],
         saa_method_comparison=saa_method_comparison,
+        existing_trial_ledger=existing_trial_ledger,
     )
     metrics = _portfolio_metrics_table(panels, trial_ledger)
     per_fold_metrics = _per_fold_metrics(outputs["oos_returns"])
@@ -1266,10 +1326,6 @@ def build_reporting(
     regime_allocations.to_csv(output_dir / REGIME_ALLOCATION_FILENAME, index=False)
     compliance.to_csv(output_dir / IPS_COMPLIANCE_FILENAME, index=False)
     dsr_summary.to_csv(output_dir / DSR_SUMMARY_FILENAME, index=False)
-    if TRIAL_LEDGER_CSV.exists():
-        existing_trial_ledger = pd.read_csv(TRIAL_LEDGER_CSV)
-    else:
-        existing_trial_ledger = pd.DataFrame()
     trial_ledger_columns = list(dict.fromkeys(existing_trial_ledger.columns.tolist() + trial_ledger.columns.tolist()))
     trial_ledger_frames = [frame for frame in (existing_trial_ledger, trial_ledger) if not frame.empty]
     merged_trial_ledger = (

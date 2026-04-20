@@ -374,6 +374,7 @@ def build_signal_bundle_at_date(
             forecaster,
             horizon=21,
             cache_dir=timesfm_cache_dir,
+            cache_key_prefix="use_timesfm_1",
         )
         timesfm_mu = timesfm_frame.get("mu_ann", pd.Series(dtype=float)).reindex(ALL_SAA).fillna(0.0)
         timesfm_sigma = timesfm_frame.get("sigma_ann_fcst", pd.Series(dtype=float)).reindex(ALL_SAA)
@@ -542,7 +543,12 @@ def run_walkforward(
     fold_lookup = {decision_date: spec for spec in fold_specs for decision_date in spec.decision_dates}
 
     forecaster: TimesFMForecaster | None = None
-    timesfm_enabled = bool(use_timesfm and timesfm_is_available())
+    if use_timesfm and not timesfm_is_available():
+        raise RuntimeError(
+            "TimesFM was requested with --timesfm, but the dependency is not installed. "
+            "Rerun with --no-timesfm or install the official google-research/timesfm stack."
+        )
+    timesfm_enabled = bool(use_timesfm)
     if timesfm_enabled:
         forecaster = TimesFMForecaster(max_context=1024, max_horizon=64)
 
@@ -625,6 +631,7 @@ def run_walkforward(
             else vol_budget
         )
         active_vol_budget *= guardrail_multiplier
+        print(f"[SOLVE] vb={active_vol_budget} regime={signal_bundle.regime_label}")
         solve_result = solve_taa_monthly_result(
             signal_score=signal_score,
             cov_matrix=covariance,

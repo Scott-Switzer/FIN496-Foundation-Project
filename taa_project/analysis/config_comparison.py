@@ -19,9 +19,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from taa_project.analysis.common import deflated_sharpe_ratio
-from taa_project.analysis.reporting import DSR_SUMMARY_FILENAME, PORTFOLIO_METRICS_FILENAME
-from taa_project.config import FIGURES_DIR, MAX_DD, OUTPUT_DIR, VOL_CEILING
+from taa_project.analysis.common import deflated_sharpe_ratio, disclosed_trial_count
+from taa_project.analysis.reporting import PORTFOLIO_METRICS_FILENAME
+from taa_project.config import FIGURES_DIR, MAX_DD, OUTPUT_DIR, TRIAL_LEDGER_CSV, VOL_CEILING
 
 
 RUNS_ROOT_DIRNAME = "runs"
@@ -69,8 +69,8 @@ def _pass_fail(flag: bool) -> str:
     return "Y" if flag else "N"
 
 
-def _benchmark_dsr(run_dir: Path, benchmark: str) -> float:
-    """Compute the benchmark DSR using one disclosed trial.
+def _benchmark_dsr(run_dir: Path, benchmark: str, n_trials: int) -> float:
+    """Compute the benchmark DSR using the full disclosed trial count.
 
     Inputs:
     - `run_dir`: canonical run directory containing benchmark return CSVs.
@@ -89,7 +89,29 @@ def _benchmark_dsr(run_dir: Path, benchmark: str) -> float:
 
     returns_name = "bm1_returns.csv" if benchmark == "BM1" else "bm2_returns.csv"
     returns = pd.read_csv(run_dir / "outputs" / returns_name)["portfolio_return"]
-    return float(deflated_sharpe_ratio(returns, n_trials=1))
+    return float(deflated_sharpe_ratio(returns, n_trials=n_trials))
+
+
+def _strategy_dsr(run_dir: Path, n_trials: int) -> float:
+    """Compute the strategy DSR from the realized OOS return stream.
+
+    Inputs:
+    - `run_dir`: canonical run directory containing `oos_returns.csv`.
+    - `n_trials`: full disclosed trial count from `TRIAL_LEDGER.csv`.
+
+    Outputs:
+    - Strategy DSR float.
+
+    Citation:
+    - Bailey & López de Prado (2014), Deflated Sharpe Ratio:
+      https://www.davidhbailey.com/dhbpapers/deflated-sharpe.pdf
+
+    Point-in-time safety:
+    - Safe. This is an ex-post evaluation metric computed on realized returns.
+    """
+
+    returns = pd.read_csv(run_dir / "outputs" / "oos_returns.csv")["portfolio_return"]
+    return float(deflated_sharpe_ratio(returns, n_trials=n_trials))
 
 
 def build_config_comparison(
@@ -117,6 +139,7 @@ def build_config_comparison(
     missing = [run_id for run_id in CANONICAL_RUN_ORDER if not (run_root / run_id / "outputs" / PORTFOLIO_METRICS_FILENAME).exists()]
     if missing:
         raise FileNotFoundError(f"Missing canonical run outputs for: {missing}")
+    n_trials = disclosed_trial_count(ledger_path=TRIAL_LEDGER_CSV)
 
     rows: list[dict[str, object]] = []
     benchmark_added = False
@@ -124,7 +147,6 @@ def build_config_comparison(
     for run_id in CANONICAL_RUN_ORDER:
         run_dir = run_root / run_id
         metrics = pd.read_csv(run_dir / "outputs" / PORTFOLIO_METRICS_FILENAME)
-        dsr_summary = pd.read_csv(run_dir / "outputs" / DSR_SUMMARY_FILENAME).iloc[0]
 
         if not benchmark_added:
             for benchmark in ("BM1", "BM2"):
@@ -138,7 +160,7 @@ def build_config_comparison(
                         "Sharpe": benchmark_row["sharpe_rf_2pct"],
                         "Sortino": benchmark_row["sortino_rf_2pct"],
                         "Calmar": benchmark_row["calmar"],
-                        "Deflated Sharpe": _benchmark_dsr(run_dir, benchmark),
+                        "Deflated Sharpe": _benchmark_dsr(run_dir, benchmark, n_trials=n_trials),
                         "Pass MDD": _pass_fail(float(benchmark_row["max_drawdown"]) >= -MAX_DD),
                         "Pass Vol": _pass_fail(float(benchmark_row["annualized_volatility"]) <= VOL_CEILING),
                         "Pass Return": _pass_fail(float(benchmark_row["annualized_return"]) >= RETURN_TARGET),
@@ -157,7 +179,7 @@ def build_config_comparison(
                 "Sharpe": strategy_row["sharpe_rf_2pct"],
                 "Sortino": strategy_row["sortino_rf_2pct"],
                 "Calmar": strategy_row["calmar"],
-                "Deflated Sharpe": dsr_summary["baseline_dsr"],
+                "Deflated Sharpe": _strategy_dsr(run_dir, n_trials=n_trials),
                 "Pass MDD": _pass_fail(float(strategy_row["max_drawdown"]) >= -MAX_DD),
                 "Pass Vol": _pass_fail(float(strategy_row["annualized_volatility"]) <= VOL_CEILING),
                 "Pass Return": _pass_fail(float(strategy_row["annualized_return"]) >= RETURN_TARGET),

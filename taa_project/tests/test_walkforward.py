@@ -91,6 +91,20 @@ def test_run_walkforward_rejects_invalid_vol_budget(tmp_path) -> None:
         )
 
 
+def test_run_walkforward_raises_when_timesfm_requested_but_unavailable(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(walkforward_module, "timesfm_is_available", lambda: False)
+
+    with pytest.raises(RuntimeError, match="TimesFM was requested"):
+        run_walkforward(
+            start="2003-01-01",
+            end="2003-06-30",
+            folds=2,
+            embargo_business_days=21,
+            use_timesfm=True,
+            output_dir=tmp_path,
+        )
+
+
 def test_run_walkforward_uses_regime_specific_vol_budget(monkeypatch, tmp_path) -> None:
     captured: list[float] = []
 

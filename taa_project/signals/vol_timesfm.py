@@ -273,6 +273,7 @@ def compute_vol_and_direction_signals(
     horizon: int = 21,
     min_context: int = DEFAULT_MIN_CONTEXT,
     cache_dir: Path | None = None,
+    cache_key_prefix: str = "use_timesfm_1",
 ) -> pd.DataFrame:
     """Compute TimesFM return, volatility, and direction signals at date `t`.
 
@@ -285,6 +286,9 @@ def compute_vol_and_direction_signals(
     - `min_context`: minimum history length required for a forecast.
     - `cache_dir`: optional directory for cached per-decision TimesFM signal
       CSVs shared across repeated sweeps.
+    - `cache_key_prefix`: cache namespace token. This must include whether the
+      TimesFM layer was enabled so repeated sweeps cannot cross-load the wrong
+      cached forecast file.
 
     Outputs:
     - Dataframe indexed by ticker with columns
@@ -302,7 +306,9 @@ def compute_vol_and_direction_signals(
 
     if cache_dir is not None:
         cache_dir.mkdir(parents=True, exist_ok=True)
-        cache_path = cache_dir / f"timesfm_signals_{pd.Timestamp(decision_date):%Y%m%d}_h{horizon}.csv"
+        cache_path = cache_dir / (
+            f"timesfm_signals_{cache_key_prefix}_{pd.Timestamp(decision_date):%Y%m%d}_h{horizon}.csv"
+        )
         if cache_path.exists():
             return pd.read_csv(cache_path, index_col="ticker")
 

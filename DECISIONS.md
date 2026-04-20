@@ -15,15 +15,15 @@
 
 - Decision: keep the flat 7% vol budget as a tested sweep point, but not as the default recommendation.
 - Alternatives considered: replace the 10% default entirely with a flat 7% or 8% target.
-- Why this won: a flat tight budget can reduce upside capture in benign risk-on regimes, while the regime-conditioned overlay preserves higher risk capacity when the macro state is calmer. In the final canonical sweep, however, all six tested configurations converged to the same realized portfolio path, so the simpler baseline remained the preferred submission.
+- Why this won: a flat tight budget can reduce upside capture in benign risk-on regimes, while the regime-conditioned overlay preserves higher risk capacity when the macro state is calmer. In the corrected canonical sweep, the flat 8% budget produced the smallest drawdown breach while keeping return and DSR superior to the benchmarks, so 7% remained a useful stress test rather than the preferred submission.
 
 - Decision: retain the OpenMP/Torch bootstrap fix and document it again in the final run log.
 - Alternatives considered: remove the bootstrap once the TimesFM sweep completed, or rely on shell-level environment exports.
 - Why this won: the full `--timesfm` path must remain runnable from a clean checkout. The duplicate-runtime workaround in `taa_project/__init__.py` and `taa_project/main.py` is still required for stable Torch import ordering on this machine. Sources: https://github.com/pytorch/pytorch/issues/6027 and https://scikit-learn.org/stable/faq.html#why-do-i-sometimes-get-a-crash-freeze-with-n-jobs-1-under-osx-or-linux.
 
-- Decision: choose `baseline` as the submission configuration after the canonical six-run sweep.
-- Alternatives considered: submit one of the TimesFM-tagged variants or the regime/drawdown-overlay variants.
-- Why this won: none of the six canonical configurations met the IPS max-drawdown tolerance of 25%, and all six produced the same realized annual return, volatility, drawdown, Sharpe, Sortino, Calmar, and DSR over 2003-01-01 through 2025-12-31. Under the Task 7 decision tree, no configuration cleared the drawdown filter, so the project fell to the "closest MDD breach" branch. Because every candidate tied on that criterion as well, the deterministic tiebreak selected the simplest configuration, `baseline`, rather than claiming incremental value from an overlay that did not change the realized portfolio path.
+- Decision: choose `timesfm_vb08` as the submission configuration after the corrected canonical six-run sweep.
+- Alternatives considered: submit the no-TimesFM baseline, the 10% or 7% flat-budget TimesFM variants, or the regime-vol / drawdown-overlay variants.
+- Why this won: none of the six canonical configurations met the IPS max-drawdown tolerance of 25%, so Task 7 fell to the "smallest MDD breach" branch. `timesfm_vb08` produced the lowest realized max drawdown at `-27.46%`, stayed below the 15% volatility ceiling, exceeded the 8% return objective, and beat `BM2` on DSR. The regime-vol and regime+DD overlays changed realized weights but did not improve on the flat 8% budget's drawdown outcome, so `timesfm_vb08` was the strongest defensible submission.
 
 ## 2026-04-19 — TimesFM / OpenMP runtime
 - Decision: pre-import `torch` in both `taa_project/__init__.py` and `taa_project/main.py`, while setting `KMP_DUPLICATE_LIB_OK=TRUE`, `OMP_NUM_THREADS=1`, and `MKL_NUM_THREADS=1` before any SciPy / scikit-learn / hmmlearn imports occur.

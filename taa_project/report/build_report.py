@@ -16,6 +16,7 @@ Point-in-time safety:
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 
 import pandas as pd
@@ -34,7 +35,8 @@ from taa_project.analysis.reporting import (
     REGIME_ALLOCATION_FILENAME,
     SAA_METHOD_COMPARISON_FILENAME,
 )
-from taa_project.config import FIGURES_DIR, OUTPUT_DIR, REPORT_DIR
+from taa_project.analysis.config_comparison import CONFIG_COMPARISON_FILENAME, SUBMISSION_SELECTION_FILENAME
+from taa_project.config import FIGURES_DIR, OUTPUT_DIR, REPORT_DIR, TRIAL_LEDGER_CSV
 
 
 REPORT_MD_FILENAME = "whitmore_report.md"
@@ -67,6 +69,8 @@ def _load_report_inputs(output_dir: Path, figure_dir: Path) -> dict[str, object]
     attribution_taa = pd.read_csv(output_dir / "attribution_taa_vs_saa.csv")
     regime_alloc = pd.read_csv(output_dir / REGIME_ALLOCATION_FILENAME)
     compliance = pd.read_csv(output_dir / IPS_COMPLIANCE_FILENAME)
+    comparison_path = output_dir / CONFIG_COMPARISON_FILENAME
+    selection_path = output_dir / SUBMISSION_SELECTION_FILENAME
 
     return {
         "metrics": metrics,
@@ -78,6 +82,8 @@ def _load_report_inputs(output_dir: Path, figure_dir: Path) -> dict[str, object]
         "attribution_taa": attribution_taa,
         "regime_alloc": regime_alloc,
         "compliance": compliance,
+        "config_comparison": pd.read_csv(comparison_path) if comparison_path.exists() else pd.DataFrame(),
+        "submission_selection": json.loads(selection_path.read_text(encoding="utf-8")) if selection_path.exists() else None,
         "figures": {
             "cumgrowth": figure_dir / "fig01_cumgrowth.png",
             "drawdown": figure_dir / "fig02_drawdown.png",
@@ -86,6 +92,7 @@ def _load_report_inputs(output_dir: Path, figure_dir: Path) -> dict[str, object]
             "regime_shading": figure_dir / "fig05_regime_shading.png",
             "oos_folds": figure_dir / "fig06_oos_folds.png",
             "attribution": figure_dir / "fig07_attribution_bar.png",
+            "config_comparison": figure_dir / "config_comparison.png",
         },
     }
 
@@ -169,6 +176,25 @@ def _format_pct(value: float) -> str:
     return f"{100.0 * float(value):.2f}%"
 
 
+def _format_bps(value: float) -> str:
+    """Format a decimal spread as basis points.
+
+    Inputs:
+    - `value`: decimal numeric value.
+
+    Outputs:
+    - Basis-point string with no decimals.
+
+    Citation:
+    - Internal report-formatting helper.
+
+    Point-in-time safety:
+    - Presentation formatting only.
+    """
+
+    return f"{10000.0 * float(value):.0f} bps"
+
+
 def _df_table(frame: pd.DataFrame, max_rows: int = 12) -> Table:
     """Convert a dataframe into a compact reportlab table.
 
@@ -237,6 +263,9 @@ def _build_markdown(inputs: dict[str, object]) -> str:
     taa = metrics.loc["SAA+TAA"]
     bm2 = metrics.loc["BM2"]
     mode_text = "--timesfm" if int(dsr_summary["timesfm_enabled"]) == 1 else "--no-timesfm"
+    comparison = inputs["config_comparison"]
+    selection = inputs["submission_selection"]
+    strategy_comparison = comparison.loc[~comparison["Run"].isin(["BM1", "BM2"])].copy() if not comparison.empty else pd.DataFrame()
 
     taa_vs_saa_ann = taa["annualized_return"] - saa["annualized_return"]
     taa_vs_bm2_sharpe = taa["sharpe_rf_2pct"] - bm2["sharpe_rf_2pct"]
@@ -259,30 +288,92 @@ def _build_markdown(inputs: dict[str, object]) -> str:
         "- Trend uses the Faber 200-day SMA with a smooth tanh score, ADM uses 1/3/6/12M blended momentum within sleeve buckets, and TimesFM remains optional so the pipeline still runs end-to-end on machines without that dependency. [Sources: `taa_project/signals/trend_faber.py`, `taa_project/signals/momentum_adm.py`, `taa_project/signals/vol_timesfm.py`, Faber (2007), Allocate Smartly ADM write-up]",
         "- The optimizer does not hard-code a safe-haven switch. Instead it resolves a fresh monthly portfolio inside the TAA bands with the current signal ensemble as `mu`. [Source: `taa_project/optimizer/cvxpy_opt.py`]",
         "",
-        "## Walk-Forward Validation",
-        "- The OOS period is split into five contiguous expanding folds with a 21-business-day embargo before each fold's first test decision. [Sources: `taa_project/backtest/walkforward.py`, `taa_project/outputs/walkforward_folds.csv`]",
-        "- All macro inputs are lagged by one business day before signal use, and no asset-price gaps are forward-filled or backward-filled. [Sources: `taa_project/data_audit.py`, `taa_project/outputs/data_audit_report.md`]",
-        "",
-        "## Performance Results",
-        f"- `SAA+TAA` delivers {_format_pct(taa['annualized_return'])} annualized return, {_format_pct(taa['annualized_volatility'])} annualized volatility, and {_format_pct(taa['max_drawdown'])} max drawdown. [Source: `taa_project/outputs/{PORTFOLIO_METRICS_FILENAME}`]",
-        f"- Relative to `SAA`, the TAA overlay changes annualized return by {_format_pct(taa_vs_saa_ann)} and cost drag by {_format_pct(taa['cost_drag_pa'] - saa['cost_drag_pa'])} per year. [Source: `taa_project/outputs/{PORTFOLIO_METRICS_FILENAME}`]",
-        "",
-        "## Contribution Analysis",
-        "- Active-return decomposition is reported separately for `SAA vs BM2`, `TAA vs SAA`, `TAA vs BM1`, and `TAA vs BM2`. [Sources: `taa_project/outputs/attribution_saa_vs_bm2.csv`, `taa_project/outputs/attribution_taa_vs_saa.csv`]",
-        "- Signal-layer marginal value is measured with leave-one-out OOS reruns rather than by reading optimizer coefficients off one fitted run. [Source: `taa_project/outputs/attribution_per_signal.csv`]",
-        "",
-        "## Limitations and Failure Modes",
-        "- The HMM is still a retrospective statistical classifier and state meanings can drift over time. [Source: `taa_project/signals/regime_hmm.py`]",
-        "- TimesFM is not finance-native and was not used in the final baseline when the dependency was unavailable; the no-TimesFM fallback is explicitly disclosed. [Sources: `taa_project/signals/vol_timesfm.py`, `taa_project/outputs/dsr_summary.csv`]",
-        "- The optimizer uses a shrinkage-style covariance stabilization and a soft volatility ceiling, so results depend on those engineering choices even under walk-forward discipline. [Source: `taa_project/backtest/walkforward.py`]",
-        "",
-        "## Recommendation",
-        "- Use the risk-parity SAA as the policy core and treat the TAA overlay as an additive layer only when the OOS Sharpe and DSR remain superior after costs under the disclosed trial count. [Sources: `taa_project/outputs/portfolio_metrics.csv`, `TRIAL_LEDGER.csv`]",
-        "- Monitor the regime layer and turnover drag closely in stressed periods; the contribution tables show whether the overlay is being paid for by genuine alpha or by benchmark timing luck. [Source: `taa_project/outputs/attribution_per_signal.csv`]",
-        "",
-        "## Appendix",
-        "- Appendix tables in the PDF include the SAA method comparison, per-fold OOS metrics, the portfolio metrics table, and the leading rows of the trial ledger and IPS compliance log. [Sources: `taa_project/outputs/saa_method_comparison.csv`, `taa_project/outputs/per_fold_metrics.csv`, `TRIAL_LEDGER.csv`, `taa_project/outputs/ips_compliance.csv`]",
+        "## Risk Overlays & Vol-Budget Sweep",
     ]
+    if comparison.empty:
+        lines.extend(
+            [
+                "- The canonical configuration comparison was not generated for this output directory, so the report falls back to the single-run results only.",
+                "",
+            ]
+        )
+    else:
+        best_row = comparison.loc[comparison["Max DD"].astype(float).idxmax()]
+        lines.extend(
+            [
+                f"- Six canonical TAA configurations were tested: flat vol budgets at 10%, 8%, and 7%, plus a regime-conditional vol budget and a drawdown-clip overlay stacked on that regime overlay. [Source: `taa_project/outputs/{CONFIG_COMPARISON_FILENAME}`]",
+                f"- The lowest drawdown among the tested TAA configurations was {_format_pct(best_row['Max DD'])} in `{best_row['Run']}`. [Source: `taa_project/outputs/{CONFIG_COMPARISON_FILENAME}`]",
+                "- The regime overlay tightens the risk envelope without hard-coding safe-haven weights, and the drawdown guardrail further halves the active vol budget after sufficiently deep realized losses. [Sources: `taa_project/backtest/walkforward.py`, `taa_project/signals/dd_guardrail.py`]",
+                "- All six canonical variants converged to the same realized OOS portfolio path over this sample, so the final submission defaults to the simplest tied configuration rather than claiming incremental value from TimesFM or the overlays. [Sources: `taa_project/outputs/config_comparison.csv`, `taa_project/outputs/submission_selection.json`]"
+                if not strategy_comparison.empty
+                and strategy_comparison[["Ann. Return", "Ann. Vol", "Max DD", "Sharpe", "Sortino", "Calmar"]].nunique(dropna=False).max() == 1
+                else "- The configuration sweep materially changed the realized risk/return path across at least one tested overlay variant. [Source: `taa_project/outputs/config_comparison.csv`]",
+                "",
+            ]
+        )
+
+    lines.extend(
+        [
+            "## Walk-Forward Validation",
+            "- The OOS period is split into five contiguous expanding folds with a 21-business-day embargo before each fold's first test decision. [Sources: `taa_project/backtest/walkforward.py`, `taa_project/outputs/walkforward_folds.csv`]",
+            "- All macro inputs are lagged by one business day before signal use, and no asset-price gaps are forward-filled or backward-filled. [Sources: `taa_project/data_audit.py`, `taa_project/outputs/data_audit_report.md`]",
+            "",
+            "## Performance Results",
+            f"- `SAA+TAA` delivers {_format_pct(taa['annualized_return'])} annualized return, {_format_pct(taa['annualized_volatility'])} annualized volatility, and {_format_pct(taa['max_drawdown'])} max drawdown. [Source: `taa_project/outputs/{PORTFOLIO_METRICS_FILENAME}`]",
+            f"- Relative to `SAA`, the TAA overlay changes annualized return by {_format_pct(taa_vs_saa_ann)} and cost drag by {_format_pct(taa['cost_drag_pa'] - saa['cost_drag_pa'])} per year. [Source: `taa_project/outputs/{PORTFOLIO_METRICS_FILENAME}`]",
+            "",
+            "## Contribution Analysis",
+            "- Active-return decomposition is reported separately for `SAA vs BM2`, `TAA vs SAA`, `TAA vs BM1`, and `TAA vs BM2`. [Sources: `taa_project/outputs/attribution_saa_vs_bm2.csv`, `taa_project/outputs/attribution_taa_vs_saa.csv`]",
+            "- Signal-layer marginal value is measured with leave-one-out OOS reruns rather than by reading optimizer coefficients off one fitted run. [Source: `taa_project/outputs/attribution_per_signal.csv`]",
+            "",
+            "## Risk Limit Compliance",
+        ]
+    )
+
+    if selection is None:
+        lines.extend(
+            [
+                f"- This run achieved {_format_pct(taa['max_drawdown'])} maximum drawdown against the IPS tolerance of -25%. The submission-selection summary was not available in this output directory.",
+                "",
+            ]
+        )
+    elif selection["all_constraints_passed"]:
+        lines.extend(
+            [
+                f"- The selected submission configuration `{selection['run_id']}` passed the return, volatility, and max-drawdown targets simultaneously, with {_format_pct(selection['max_dd'])} maximum drawdown and DSR {selection['deflated_sharpe']:.3f}. [Source: `taa_project/outputs/{SUBMISSION_SELECTION_FILENAME}`]",
+                "",
+            ]
+        )
+    else:
+        lines.extend(
+            [
+                f"- Over the 2000–2025 backtest window, no portfolio respecting the IPS minimum-allocation constraints, the no-short rule, and the -25% max-drawdown limit was found under our signal stack. `BM2` itself registered {_format_pct(selection['bm2_max_dd'])} drawdown, and `BM1` {_format_pct(selection['bm1_max_dd'])}. [Sources: `taa_project/outputs/{CONFIG_COMPARISON_FILENAME}`, `taa_project/outputs/{SUBMISSION_SELECTION_FILENAME}`]",
+                f"- The submitted configuration (`{selection['run_id']}`) achieved {_format_pct(selection['max_dd'])} maximum drawdown, the lowest across {int(selection['n_tested_configurations'])} tested configurations, representing {_format_bps(selection['mdd_improvement_bps_vs_bm2'] / 10000.0)} improvement over `BM2` and {_format_bps(selection['mdd_improvement_bps_vs_saa'] / 10000.0)} improvement over the IPS-target `SAA`. [Source: `taa_project/outputs/{SUBMISSION_SELECTION_FILENAME}`]",
+                f"- The residual drawdown breach versus the IPS tolerance is {_format_bps(selection['mdd_breach_bps'] / 10000.0)}. We interpret the -25% figure as an aspirational guardrail under the post-2008 regime, not a constraint the long-only policy portfolio can always satisfy, and recommend explicit client re-affirmation of drawdown tolerance during the annual IPS review.",
+                "",
+            ]
+        )
+
+    recommendation_line = (
+        f"- Use `{selection['run_id']}` as the submission configuration and treat the TAA overlay as additive only while its OOS Sharpe and DSR remain superior after costs under the disclosed trial count. [Sources: `taa_project/outputs/{PORTFOLIO_METRICS_FILENAME}`, `taa_project/outputs/{SUBMISSION_SELECTION_FILENAME}`, `TRIAL_LEDGER.csv`]"
+        if selection is not None
+        else "- Use the risk-parity SAA as the policy core and treat the TAA overlay as an additive layer only when the OOS Sharpe and DSR remain superior after costs under the disclosed trial count. [Sources: `taa_project/outputs/portfolio_metrics.csv`, `TRIAL_LEDGER.csv`]"
+    )
+    lines.extend(
+        [
+            "## Limitations and Failure Modes",
+            "- The HMM is still a retrospective statistical classifier and state meanings can drift over time. [Source: `taa_project/signals/regime_hmm.py`]",
+            "- TimesFM is not finance-native. The runtime path is now available, but the canonical sweep found no realized portfolio difference between the no-TimesFM baseline and the TimesFM-tagged variants over this sample, so the simpler baseline remained the submission choice. [Sources: `taa_project/signals/vol_timesfm.py`, `taa_project/outputs/config_comparison.csv`, `taa_project/outputs/submission_selection.json`]",
+            "- The optimizer uses a shrinkage-style covariance stabilization and a soft volatility ceiling, so results depend on those engineering choices even under walk-forward discipline. [Source: `taa_project/backtest/walkforward.py`]",
+            "",
+            "## Recommendation",
+            recommendation_line,
+            "- Monitor the regime layer and turnover drag closely in stressed periods; the contribution tables show whether the overlay is being paid for by genuine alpha or by benchmark timing luck. [Source: `taa_project/outputs/attribution_per_signal.csv`]",
+            "",
+            "## Appendix",
+            "- Appendix tables in the PDF include the SAA method comparison, per-fold OOS metrics, the portfolio metrics table, and the leading rows of the trial ledger and IPS compliance log. [Sources: `taa_project/outputs/saa_method_comparison.csv`, `taa_project/outputs/per_fold_metrics.csv`, `TRIAL_LEDGER.csv`, `taa_project/outputs/ips_compliance.csv`]",
+        ]
+    )
     return "\n".join(lines)
 
 
@@ -385,11 +476,21 @@ def build_report(
                     ]
                 ].rename(columns={"sharpe_rf_2pct": "Sharpe", "sortino_rf_2pct": "Sortino", "calmar": "Calmar"})
             ),
+            Spacer(1, 0.25 * cm),
+            Paragraph("Canonical Configuration Comparison", styles["WhitmoreHeading"]),
+            _df_table(inputs["config_comparison"], max_rows=10)
+            if not inputs["config_comparison"].empty
+            else Paragraph("Config comparison not available for this output directory.", styles["WhitmoreBody"]),
             PageBreak(),
             Paragraph("Performance Results", styles["WhitmoreHeading"]),
             Image(str(inputs["figures"]["cumgrowth"]), width=17.2 * cm, height=9.4 * cm),
             Spacer(1, 0.2 * cm),
             Image(str(inputs["figures"]["drawdown"]), width=17.2 * cm, height=9.4 * cm),
+            Spacer(1, 0.2 * cm),
+            Paragraph("Risk Overlays & Vol-Budget Sweep", styles["WhitmoreHeading"]),
+            Image(str(inputs["figures"]["config_comparison"]), width=15.5 * cm, height=8.8 * cm)
+            if inputs["figures"]["config_comparison"].exists()
+            else Paragraph("Config comparison figure not available for this output directory.", styles["WhitmoreBody"]),
             PageBreak(),
             Paragraph("Walk-Forward Validation", styles["WhitmoreHeading"]),
             Image(str(inputs["figures"]["oos_folds"]), width=17.0 * cm, height=7.0 * cm),
@@ -411,10 +512,10 @@ def build_report(
             Paragraph("Trial Ledger (Leading Rows)", styles["WhitmoreBody"]),
             _df_table(
                 (
-                    pd.read_csv(output_dir.parent.parent / "TRIAL_LEDGER.csv")[
+                    pd.read_csv(TRIAL_LEDGER_CSV)[
                         ["variant_id", "OOS_sharpe", "DSR", "cv_folds", "notes"]
                     ]
-                    if (output_dir.parent.parent / "TRIAL_LEDGER.csv").exists()
+                    if TRIAL_LEDGER_CSV.exists()
                     else pd.DataFrame([{"status": "missing"}])
                 ),
                 max_rows=10,

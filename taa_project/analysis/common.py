@@ -23,6 +23,7 @@ from scipy import stats
 
 from taa_project.config import ALL_SAA, CORE, NONTRAD, OUTPUT_DIR, SATELLITE
 from taa_project.data_loader import load_prices, log_returns
+from taa_project.pandas_utils import forward_propagate
 
 
 TRADING_DAYS_PER_YEAR = 252
@@ -150,7 +151,7 @@ def decision_weights_to_daily_target(
     """
 
     weights = decision_weights.loc[:, ALL_SAA].copy()
-    expanded = weights.reindex(weights.index.union(daily_index)).sort_index().ffill()
+    expanded = forward_propagate(weights.reindex(weights.index.union(daily_index)).sort_index())
     return expanded.reindex(daily_index).fillna(0.0)
 
 

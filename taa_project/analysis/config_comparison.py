@@ -12,12 +12,14 @@ Point-in-time safety:
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
+from taa_project.analysis.common import deflated_sharpe_ratio
 from taa_project.analysis.reporting import DSR_SUMMARY_FILENAME, PORTFOLIO_METRICS_FILENAME
 from taa_project.config import FIGURES_DIR, MAX_DD, OUTPUT_DIR, VOL_CEILING
 
@@ -25,6 +27,7 @@ from taa_project.config import FIGURES_DIR, MAX_DD, OUTPUT_DIR, VOL_CEILING
 RUNS_ROOT_DIRNAME = "runs"
 CONFIG_COMPARISON_FILENAME = "config_comparison.csv"
 CONFIG_COMPARISON_FIGURE = "config_comparison.png"
+SUBMISSION_SELECTION_FILENAME = "submission_selection.json"
 CANONICAL_RUN_ORDER = [
     "baseline",
     "timesfm_vb10",
@@ -35,16 +38,19 @@ CANONICAL_RUN_ORDER = [
 ]
 RETURN_TARGET = 0.08
 
+RUN_LABELS = {
+    "baseline": "Baseline",
+    "timesfm_vb10": "TimesFM VB10",
+    "timesfm_vb08": "TimesFM VB08",
+    "timesfm_vb07": "TimesFM VB07",
+    "timesfm_regime_vb": "TimesFM Regime VB",
+    "timesfm_regime_dd": "TimesFM Regime + DD",
+}
+RUN_IDS_BY_LABEL = {label: run_id for run_id, label in RUN_LABELS.items()}
+
 
 def _run_label(run_id: str) -> str:
-    return {
-        "baseline": "Baseline",
-        "timesfm_vb10": "TimesFM VB10",
-        "timesfm_vb08": "TimesFM VB08",
-        "timesfm_vb07": "TimesFM VB07",
-        "timesfm_regime_vb": "TimesFM Regime VB",
-        "timesfm_regime_dd": "TimesFM Regime + DD",
-    }.get(run_id, run_id)
+    return RUN_LABELS.get(run_id, run_id)
 
 
 def _overlay_bucket(run_id: str) -> str:
@@ -61,6 +67,29 @@ def _overlay_bucket(run_id: str) -> str:
 
 def _pass_fail(flag: bool) -> str:
     return "Y" if flag else "N"
+
+
+def _benchmark_dsr(run_dir: Path, benchmark: str) -> float:
+    """Compute the benchmark DSR using one disclosed trial.
+
+    Inputs:
+    - `run_dir`: canonical run directory containing benchmark return CSVs.
+    - `benchmark`: benchmark label, either `BM1` or `BM2`.
+
+    Outputs:
+    - Benchmark DSR float.
+
+    Citation:
+    - Bailey & López de Prado (2014), Deflated Sharpe Ratio:
+      https://www.davidhbailey.com/dhbpapers/deflated-sharpe.pdf
+
+    Point-in-time safety:
+    - Safe. This is an ex-post evaluation metric computed on realized returns.
+    """
+
+    returns_name = "bm1_returns.csv" if benchmark == "BM1" else "bm2_returns.csv"
+    returns = pd.read_csv(run_dir / "outputs" / returns_name)["portfolio_return"]
+    return float(deflated_sharpe_ratio(returns, n_trials=1))
 
 
 def build_config_comparison(
@@ -109,7 +138,7 @@ def build_config_comparison(
                         "Sharpe": benchmark_row["sharpe_rf_2pct"],
                         "Sortino": benchmark_row["sortino_rf_2pct"],
                         "Calmar": benchmark_row["calmar"],
-                        "Deflated Sharpe": np.nan,
+                        "Deflated Sharpe": _benchmark_dsr(run_dir, benchmark),
                         "Pass MDD": _pass_fail(float(benchmark_row["max_drawdown"]) >= -MAX_DD),
                         "Pass Vol": _pass_fail(float(benchmark_row["annualized_volatility"]) <= VOL_CEILING),
                         "Pass Return": _pass_fail(float(benchmark_row["annualized_return"]) >= RETURN_TARGET),
@@ -188,6 +217,119 @@ def build_config_comparison(
     return comparison.drop(columns=["overlay_bucket"])
 
 
+def select_submission_configuration(
+    comparison: pd.DataFrame,
+    run_root: Path = OUTPUT_DIR / RUNS_ROOT_DIRNAME,
+) -> dict[str, object]:
+    """Select the submission configuration using the Task 7 decision tree.
+
+    Inputs:
+    - `comparison`: canonical configuration comparison dataframe.
+    - `run_root`: canonical run-output root for loading SAA metrics.
+
+    Outputs:
+    - Dictionary summarizing the chosen configuration and the decision rule used.
+
+    Citation:
+    - Whitmore Task 7 submission-selection rule set.
+
+    Point-in-time safety:
+    - Safe. This is an ex-post selection summary using already-generated runs.
+    """
+
+    benchmarks = comparison.loc[comparison["Run"].isin(["BM1", "BM2"])].set_index("Run")
+    strategies = comparison.loc[~comparison["Run"].isin(["BM1", "BM2"])].copy()
+    if strategies.empty:
+        raise ValueError("No strategy rows found in config comparison.")
+
+    run_rank = {_run_label(run_id): rank for rank, run_id in enumerate(CANONICAL_RUN_ORDER)}
+    strategies["run_rank"] = strategies["Run"].map(run_rank).fillna(len(run_rank)).astype(int)
+    strategies["pass_all"] = (
+        strategies["Pass MDD"].eq("Y") & strategies["Pass Vol"].eq("Y") & strategies["Pass Return"].eq("Y")
+    )
+    strategies["pass_mdd"] = strategies["Pass MDD"].eq("Y")
+    bm2_dsr = float(benchmarks.loc["BM2", "Deflated Sharpe"])
+
+    selection_rule = ""
+    pool = strategies.loc[strategies["pass_all"]]
+    if not pool.empty:
+        selection_rule = "rule_1_all_constraints"
+    else:
+        pool = strategies.loc[strategies["pass_mdd"]]
+        if not pool.empty:
+            selection_rule = "rule_2_mdd_only"
+        else:
+            pool = strategies.loc[strategies["Deflated Sharpe"] > bm2_dsr]
+            if pool.empty:
+                pool = strategies.copy()
+            selection_rule = "rule_3_smallest_mdd_breach"
+
+    chosen = pool.sort_values(
+        by=["Max DD", "Deflated Sharpe", "Ann. Return", "run_rank"],
+        ascending=[False, False, False, True],
+    ).iloc[0]
+    run_label = str(chosen["Run"])
+    run_id = RUN_IDS_BY_LABEL[run_label]
+    run_metrics = pd.read_csv(run_root / run_id / "outputs" / PORTFOLIO_METRICS_FILENAME).set_index("portfolio")
+    saa_dd = float(run_metrics.loc["SAA", "max_drawdown"])
+    target_dd = -MAX_DD
+    chosen_dd = float(chosen["Max DD"])
+    breach_bps = max(0.0, target_dd - chosen_dd) * 10000.0
+
+    return {
+        "run_id": run_id,
+        "display_name": run_label,
+        "decision_rule": selection_rule,
+        "n_tested_configurations": int(len(strategies)),
+        "ann_return": float(chosen["Ann. Return"]),
+        "ann_vol": float(chosen["Ann. Vol"]),
+        "max_dd": chosen_dd,
+        "sharpe": float(chosen["Sharpe"]),
+        "sortino": float(chosen["Sortino"]),
+        "calmar": float(chosen["Calmar"]),
+        "deflated_sharpe": float(chosen["Deflated Sharpe"]),
+        "pass_mdd": str(chosen["Pass MDD"]) == "Y",
+        "pass_vol": str(chosen["Pass Vol"]) == "Y",
+        "pass_return": str(chosen["Pass Return"]) == "Y",
+        "all_constraints_passed": bool(
+            (str(chosen["Pass MDD"]) == "Y")
+            and (str(chosen["Pass Vol"]) == "Y")
+            and (str(chosen["Pass Return"]) == "Y")
+        ),
+        "bm1_max_dd": float(benchmarks.loc["BM1", "Max DD"]),
+        "bm2_max_dd": float(benchmarks.loc["BM2", "Max DD"]),
+        "saa_max_dd": saa_dd,
+        "bm2_dsr": bm2_dsr,
+        "beats_bm2_on_dsr": bool(float(chosen["Deflated Sharpe"]) > bm2_dsr),
+        "mdd_breach_bps": breach_bps,
+        "mdd_improvement_bps_vs_bm2": (chosen_dd - float(benchmarks.loc["BM2", "Max DD"])) * 10000.0,
+        "mdd_improvement_bps_vs_saa": (chosen_dd - saa_dd) * 10000.0,
+    }
+
+
+def write_submission_selection(selection: dict[str, object], output_dir: Path = OUTPUT_DIR) -> Path:
+    """Write the submission-selection summary to JSON.
+
+    Inputs:
+    - `selection`: selection-summary dictionary.
+    - `output_dir`: destination directory for the JSON file.
+
+    Outputs:
+    - Path to the written JSON file.
+
+    Citation:
+    - Whitmore Task 7 submission-selection documentation requirement.
+
+    Point-in-time safety:
+    - Safe. This writes an ex-post summary only.
+    """
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    path = output_dir / SUBMISSION_SELECTION_FILENAME
+    path.write_text(json.dumps(selection, indent=2, sort_keys=True), encoding="utf-8")
+    return path
+
+
 def main() -> None:
     """CLI entrypoint for Task 6 configuration-comparison artifacts.
 
@@ -213,9 +355,12 @@ def main() -> None:
     args = parser.parse_args()
 
     comparison = build_config_comparison(run_root=Path(args.run_root), output_dir=Path(args.output_dir), figure_dir=Path(args.figure_dir))
+    selection = select_submission_configuration(comparison, run_root=Path(args.run_root))
+    selection_path = write_submission_selection(selection, output_dir=Path(args.output_dir))
     print(
         f"Wrote {Path(args.output_dir) / CONFIG_COMPARISON_FILENAME} and "
-        f"{Path(args.figure_dir) / CONFIG_COMPARISON_FIGURE}. Rows: {len(comparison)}"
+        f"{Path(args.figure_dir) / CONFIG_COMPARISON_FIGURE}. Rows: {len(comparison)}. "
+        f"Selection: {selection['run_id']} -> {selection_path}"
     )
 
 

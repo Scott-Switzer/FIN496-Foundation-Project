@@ -89,6 +89,7 @@ from taa_project.config import (
 )
 from taa_project.data_loader import log_returns
 from taa_project.optimizer.cvxpy_opt import EnsembleConfig
+from taa_project.pandas_utils import forward_propagate
 from taa_project.saa.build_saa import (
     DIAGONAL_FLOOR as SAA_DIAGONAL_FLOOR,
     DEFAULT_END as SAA_DEFAULT_END,
@@ -1095,7 +1096,7 @@ def _save_regime_shading_figure(panels: dict[str, object], figure_dir: Path) -> 
     """
 
     bm2_returns = panels["returns"]["BM2"].reindex(panels["regimes_daily"].index).dropna()
-    regime_series = panels["regimes_daily"].reindex(bm2_returns.index).ffill()
+    regime_series = forward_propagate(panels["regimes_daily"].reindex(bm2_returns.index))
     growth = cumulative_growth_index(bm2_returns)
 
     regime_colors = {"risk_on": "#d8f3dc", "neutral": "#fef3c7", "stress": "#fecaca"}

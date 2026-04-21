@@ -118,6 +118,12 @@ class EnsembleConfig:
     regime_scale: float = 0.10
     trend_scale: float = 0.06
     momo_scale: float = 0.06
+    # macro signals are in z-score × loading space (raw max ~0.18 for XAU at |z|=1,
+    # ~0.60 for BTC at cap). Scaled to produce peak tilts comparable to the regime
+    # layer (~3%) rather than dominating it. At macro_scale=0.20:
+    #   XAU at |z|=1 → 0.18 × 0.20 × 0.20 = 0.0072 per ensemble wt unit
+    #   BTC at cap   → 0.60 × 0.20 × 0.20 = 0.024  (≤ regime max 0.03)
+    macro_scale: float = 0.20
     vol_budget_by_regime: dict[str, float] | None = None
     use_dd_guardrail: bool = False
     optimizer_mode: str = "vol"
@@ -1011,6 +1017,6 @@ def ensemble_score(
         + cfg.trend_weight * trend_sig * cfg.trend_scale
         + cfg.momo_weight * momo_sig * cfg.momo_scale
         + cfg.timesfm_weight * timesfm_mu
-        + cfg.macro_factor_weight * macro_mu
+        + cfg.macro_factor_weight * macro_mu * cfg.macro_scale
     )
     return score.reindex(ALL_SAA).fillna(0.0)

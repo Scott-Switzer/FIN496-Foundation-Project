@@ -598,6 +598,7 @@ def compute_target_weights(
     returns: pd.DataFrame,
     rebalance_date: pd.Timestamp,
     inception_dates: pd.Series,
+    method: str = "risk_parity",
 ) -> pd.Series:
     """Compute the constrained SAA target weights for one rebalance date.
 
@@ -606,6 +607,7 @@ def compute_target_weights(
     - `returns`: SAA log-return dataframe.
     - `rebalance_date`: date of the allocation decision.
     - `inception_dates`: first valid date per asset.
+    - `method`: SAA construction method, either `risk_parity` or `hrp`.
 
     Outputs:
     - Full-universe weight series with unavailable assets fixed at zero.
@@ -620,19 +622,25 @@ def compute_target_weights(
 
     eligible_assets = available_assets_on(rebalance_date, inception_dates)
     observed_assets = [asset for asset in eligible_assets if pd.notna(prices.loc[rebalance_date, asset])]
-    lower_bounds, upper_bounds = bounds_for_assets(observed_assets)
     covariance = estimate_covariance(returns, rebalance_date, observed_assets)
-    budgets = target_risk_budgets(observed_assets)
-
-    target_weights = solve_target_risk_parity(
-        SAAOptimizationInputs(
-            covariance=covariance,
-            lower_bounds=lower_bounds,
-            upper_bounds=upper_bounds,
-            risk_budgets=budgets,
-            assets=observed_assets,
+    if method == "risk_parity":
+        lower_bounds, upper_bounds = bounds_for_assets(observed_assets)
+        budgets = target_risk_budgets(observed_assets)
+        target_weights = solve_target_risk_parity(
+            SAAOptimizationInputs(
+                covariance=covariance,
+                lower_bounds=lower_bounds,
+                upper_bounds=upper_bounds,
+                risk_budgets=budgets,
+                assets=observed_assets,
+            )
         )
-    )
+    elif method == "hrp":
+        from taa_project.saa.saa_comparison import solve_hierarchical_risk_parity
+
+        target_weights = solve_hierarchical_risk_parity(observed_assets, covariance).reindex(observed_assets).fillna(0.0)
+    else:
+        raise ValueError(f"Unsupported SAA method: {method}")
 
     full_weights = pd.Series(0.0, index=ALL_SAA, dtype=float)
     full_weights.loc[observed_assets] = target_weights
@@ -729,6 +737,7 @@ def build_saa_portfolio(
     start_date: str = DEFAULT_START,
     end_date: str = DEFAULT_END,
     output_dir: Path = OUTPUT_DIR,
+    method: str = "risk_parity",
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Build the Whitmore annual-rebalanced SAA portfolio.
 
@@ -736,6 +745,7 @@ def build_saa_portfolio(
     - `start_date`: earliest allowed start date for portfolio inception.
     - `end_date`: last date to include in the output history.
     - `output_dir`: destination directory for output CSV files.
+    - `method`: SAA construction method, either `risk_parity` or `hrp`.
 
     Outputs:
     - Tuple `(weights_df, returns_df)` also written to `saa_weights.csv` and
@@ -755,7 +765,7 @@ def build_saa_portfolio(
     schedule = build_rebalance_schedule(prices, start_date, end_date)
 
     rebalance_targets = {
-        rebalance_date: compute_target_weights(prices, returns, rebalance_date, inception_dates)
+        rebalance_date: compute_target_weights(prices, returns, rebalance_date, inception_dates, method=method)
         for rebalance_date in schedule
     }
 
@@ -793,11 +803,17 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Build the Whitmore SAA portfolio.")
     parser.add_argument("--start", default=DEFAULT_START, help="Earliest allowed portfolio start date.")
     parser.add_argument("--end", default=DEFAULT_END, help="Last date to include in the output history.")
+    parser.add_argument(
+        "--method",
+        choices=["risk_parity", "hrp"],
+        default="risk_parity",
+        help="Strategic asset allocation method.",
+    )
     parser.add_argument("--output-dir", default=str(OUTPUT_DIR), help="Destination directory for output CSV files.")
     args = parser.parse_args()
 
     output_dir = Path(args.output_dir)
-    build_saa_portfolio(start_date=args.start, end_date=args.end, output_dir=output_dir)
+    build_saa_portfolio(start_date=args.start, end_date=args.end, output_dir=output_dir, method=args.method)
     print(f"SAA outputs written to {output_dir / SAA_WEIGHTS_FILENAME} and {output_dir / SAA_RETURNS_FILENAME}")
 
 

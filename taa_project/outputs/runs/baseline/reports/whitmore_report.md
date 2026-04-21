@@ -3,7 +3,7 @@
 ## Executive Summary
 - The final implementation uses constrained risk parity for SAA and a monthly cvxpy TAA overlay driven by HMM regime, Faber trend, Antonacci-style ADM, and an optional TimesFM layer. This report reflects run mode `--no-timesfm`. [Sources: `taa_project/saa/build_saa.py`, `taa_project/backtest/walkforward.py`, `taa_project/analysis/reporting.py`]
 - Net annualized return is 14.42% for `SAA+TAA` versus 8.83% for `SAA` and 7.86% for `BM2`. [Source: `taa_project/outputs/portfolio_metrics.csv`]
-- Net Sharpe improves by 0.50 versus `BM2`, while the Deflated Sharpe Ratio is 0.999 across 105 disclosed TAA trials. [Sources: `taa_project/outputs/portfolio_metrics.csv`, `taa_project/outputs/dsr_summary.csv`, `TRIAL_LEDGER.csv`]
+- Net Sharpe improves by 0.50 versus `BM2`, while the Deflated Sharpe Ratio is 0.998 across 213 disclosed trials in `TRIAL_LEDGER.csv`. [Sources: `taa_project/outputs/portfolio_metrics.csv`, `taa_project/outputs/dsr_summary.csv`, `TRIAL_LEDGER.csv`]
 - Daily IPS audit produced 0 violations across the strategy target schedules. [Source: `taa_project/outputs/ips_compliance.csv`]
 
 ## SAA Construction and IPS Compliance
@@ -15,8 +15,8 @@
 - Trend uses the Faber 200-day SMA with a smooth tanh score, ADM uses 1/3/6/12M blended momentum within sleeve buckets, and TimesFM remains optional so the pipeline still runs end-to-end on machines without that dependency. [Sources: `taa_project/signals/trend_faber.py`, `taa_project/signals/momentum_adm.py`, `taa_project/signals/vol_timesfm.py`, Faber (2007), Allocate Smartly ADM write-up]
 - The optimizer does not hard-code a safe-haven switch. Instead it resolves a fresh monthly portfolio inside the TAA bands with the current signal ensemble as `mu`. [Source: `taa_project/optimizer/cvxpy_opt.py`]
 
-## Risk Overlays & Vol-Budget Sweep
-- The canonical configuration comparison was not generated for this output directory, so the report falls back to the single-run results only.
+## Risk Overlays & Portfolio-Construction Sweep
+- The 13-configuration comparison was not generated for this output directory, so the report falls back to the single-run results only.
 
 ## Walk-Forward Validation
 - The OOS period is split into five contiguous expanding folds with a 21-business-day embargo before each fold's first test decision. [Sources: `taa_project/backtest/walkforward.py`, `taa_project/outputs/walkforward_folds.csv`]
@@ -33,9 +33,12 @@
 ## Risk Limit Compliance
 - This run achieved -31.51% maximum drawdown against the IPS tolerance of -25%. The submission-selection summary was not available in this output directory.
 
+## Portfolio Construction Lever Analysis
+- The 13-configuration comparison table was not available when this report was built.
+
 ## Limitations and Failure Modes
 - The HMM is still a retrospective statistical classifier and state meanings can drift over time. [Source: `taa_project/signals/regime_hmm.py`]
-- TimesFM is not finance-native. The runtime path is now available, but the canonical sweep found no realized portfolio difference between the no-TimesFM baseline and the TimesFM-tagged variants over this sample, so the simpler baseline remained the submission choice. [Sources: `taa_project/signals/vol_timesfm.py`, `taa_project/outputs/config_comparison.csv`, `taa_project/outputs/submission_selection.json`]
+- TimesFM is not finance-native. Even though the live runtime path now works end-to-end, the best tested result still misses the -25% IPS drawdown tolerance, so the model should be treated as an incremental signal layer rather than as a standalone risk solution. [Sources: `taa_project/signals/vol_timesfm.py`, `taa_project/outputs/config_comparison.csv`, `taa_project/outputs/submission_selection.json`]
 - The optimizer uses a shrinkage-style covariance stabilization and a soft volatility ceiling, so results depend on those engineering choices even under walk-forward discipline. [Source: `taa_project/backtest/walkforward.py`]
 
 ## Recommendation

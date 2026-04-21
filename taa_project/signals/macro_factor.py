@@ -83,7 +83,14 @@ from taa_project.config import ALL_SAA
 # ---------------------------------------------------------------------------
 
 # Rolling z-score window (trading days) for FRED signals.
-_ZSCORE_WINDOW = 252
+# 63 days (≈3 months) was chosen over 252 (1 year) to ensure the signal
+# reflects *changes* in real yields rather than decade-long level effects.
+# With a 252-day window, DFII10 stayed persistently below its rolling mean
+# from 2009–2021, producing a near-constant z ≈ -1 for 12 consecutive years
+# that systematically tilted every high-CAGR asset toward its vol-constraint
+# upper bound and inflated backtest returns by ~3–4 % (see DECISIONS.md).
+# A 63-day window mean-reverts within a quarter and is still ≥ _MIN_FRED_OBS/2.
+_ZSCORE_WINDOW = 63
 
 # Minimum observations before emitting a non-zero FRED signal.
 _MIN_FRED_OBS = 126

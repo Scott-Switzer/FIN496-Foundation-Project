@@ -105,24 +105,27 @@ class EnsembleConfig:
 
     # Signal-ensemble weights must sum to 1.0 for a stable expected-return
     # scale.  Default allocation:
-    #   regime(0.30) + trend(0.20) + momo(0.20) + timesfm(0.10) + macro(0.20)
-    # The macro_factor weight was freed from timesfm (reduced 0.20 → 0.10)
-    # because the macro_factor signal is always available (no optional
-    # dependency) and provides asset-specific factor signals that are
-    # absent from the regime HMM and trend/momentum layers.
-    regime_weight: float = 0.30
+    #   regime(0.40) + trend(0.20) + momo(0.20) + timesfm(0.15) + macro(0.05)
+    #
+    # History of changes (see DECISIONS.md):
+    #   PR #6: regime 0.40→0.30 (freed weight to macro), macro 0.10→0.20 — reverted
+    #   2026-04 fix: regime restored to 0.40 (primary risk governor),
+    #     macro reduced to 0.05 (subordinate signal, max BTC tilt ≈0.006
+    #     vs regime max 0.040), timesfm 0.10→0.15 to absorb freed weight.
+    regime_weight: float = 0.40
     trend_weight: float = 0.20
     momo_weight: float = 0.20
-    timesfm_weight: float = 0.10
-    macro_factor_weight: float = 0.20
+    timesfm_weight: float = 0.15
+    macro_factor_weight: float = 0.05
     regime_scale: float = 0.10
     trend_scale: float = 0.06
     momo_scale: float = 0.06
     # macro signals are in z-score × loading space (raw max ~0.18 for XAU at |z|=1,
-    # ~0.60 for BTC at cap). Scaled to produce peak tilts comparable to the regime
-    # layer (~3%) rather than dominating it. At macro_scale=0.20:
-    #   XAU at |z|=1 → 0.18 × 0.20 × 0.20 = 0.0072 per ensemble wt unit
-    #   BTC at cap   → 0.60 × 0.20 × 0.20 = 0.024  (≤ regime max 0.03)
+    # ~0.60 for BTC at cap). macro_scale keeps raw z×loading magnitudes comparable
+    # across signals. At macro_factor_weight=0.05, macro_scale=0.20:
+    #   XAU at |z|=1 → 0.05 × 0.18 × 0.20 = 0.0018  (clearly subordinate)
+    #   BTC at cap   → 0.05 × 0.60 × 0.20 = 0.006   (vs regime max 0.040)
+    # This ensures macro is a refinement signal only, not a return driver.
     macro_scale: float = 0.20
     vol_budget_by_regime: dict[str, float] | None = None
     use_dd_guardrail: bool = False

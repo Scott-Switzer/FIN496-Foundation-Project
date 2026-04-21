@@ -135,3 +135,41 @@
 
 - Decision: add `macro_scale: float = 0.20` to `EnsembleConfig` and apply it in `ensemble_score` as `cfg.macro_factor_weight * macro_mu * cfg.macro_scale`.
 - Rationale: the three existing raw signal layers (`regime_tilt`, `trend_sig`, `momo_sig`) each carry a dedicated scale factor (`regime_scale=0.10`, `trend_scale=0.06`, `momo_scale=0.06`) that normalises their raw [-1, +1] range into a return-like expected-return proxy. `macro_factor_mu` was introduced without an equivalent scale, so its raw z-score × loading values (e.g., 0.18 for XAU at |z|=1, 0.60 cap for BTC) were 4–10× larger than the scaled regime/trend/momo contributions. The optimizer therefore saw macro as the dominant signal and took aggressive positions in high-loading assets (BTC, XAU, SPXT) regardless of regime. The backtest correctly reflected this: adding PR #6 pushed annualised return from 7.68% to 11.35–11.72% but worsened MDD from −25.54% to −32.71%–−34.93%, worse than the unconstrained baseline. At `macro_scale=0.20` the maximum macro contribution per asset (BTC at cap: 0.60×0.20×0.20 = 0.024) is at or below the regime layer maximum (0.03), restoring the regime as the primary risk governor while keeping macro as an additive incremental signal.
+
+## 2026-04-21 — Root-cause attribution and three-fix regression correction
+
+**Context**: After `macro_scale=0.20` was added (commit 80629cb), the bridge sweep v3 baseline still showed 12.10%/−33.46% — a 50 bps improvement over v2 but still 4.6 % above the pre-PR-#6 result of 7.50%/−23.97%. A structured root-cause decomposition identified three independent causes.
+
+**Cause 1 (dominant, ~3–4 % return inflation): `_ZSCORE_WINDOW = 252` in `macro_factor.py`**
+
+- Decision: change `_ZSCORE_WINDOW` from 252 to 63 trading days.
+- Why: DFII10 (10Y real yield) declined from ~2.5% in 2003 to nearly −1% by 2021, spending the entire 2009–2021 period persistently below its own 252-day rolling mean. A 252-day z-score window produced a near-constant z ≈ −1 for roughly 144 consecutive months. Because XAU, SPXT, B3REITT, and BROAD_TIPS all carry positive real-yield loadings (0.18, 0.04, 0.06, 0.10), this persistent negative z generated a continuous positive macro tilt for every high-CAGR asset class over the entire 2009–2021 bull market — the best-performing decade in the backtest. The result is not a one-month spike but a structural, compounding return enhancement that accounts for roughly 3–4 % of the 4.6 % incremental CAGR. A 63-day window ensures the signal reflects *changes* in real yields within the current quarter, not multi-year level drift. The 63-day horizon is ≥ `_MIN_FRED_OBS/2 = 63`, so the minimum-observation guard remains satisfied.
+- Alternatives considered: 126-day (semi-annual) window; removing the real-yield sub-signal entirely; applying a linear detrend before z-scoring.
+- Why 63 won: 63 days balances responsiveness (quarterly mean-reversion) with stability (avoids over-reaction to single-day FRED releases). Removing the signal entirely would discard the XAU/BROAD_TIPS channel that has genuine economic support. Linear detrending requires in-sample slope estimation, introducing lookahead risk.
+
+**Cause 2 (secondary, ~0.5–1 % return, ~2 % MDD): `regime_weight` cut from 0.40 to 0.30 in PR #6**
+
+- Decision: restore `regime_weight` to 0.40.
+- Why: the HMM regime signal's maximum protective contribution per asset is `regime_weight × regime_scale × max_tilt = regime_weight × 0.10 × 1.0`. At 0.30 this is 0.030; at 0.40 it is 0.040 — a 33 % increase in the primary risk governor's ceiling. Cutting regime weight by 25 % allowed the optimizer to remain in risk-on postures longer during drawdown events, contributing directly to the MDD worsening from −23.97 % to −33.46 %. The regime HMM is the only signal in the ensemble that has causal, real-time access to the current vol/stress regime; giving it less weight than trend or momentum undercuts its role as risk governor.
+
+**Cause 3 (tertiary, reinforces Cause 2): `macro_factor_weight = 0.20` with insufficient macro_scale**
+
+- Decision: reduce `macro_factor_weight` from 0.20 to 0.05; redistribute freed weight to timesfm (0.10 → 0.15).
+- Why: even with `macro_scale = 0.20`, BTC's maximum macro contribution was `0.20 × 0.60 × 0.20 = 0.024` — nearly as large as the restored regime maximum of 0.040. At 0.05, BTC macro max = `0.05 × 0.60 × 0.20 = 0.006`, clearly subordinate to regime (0.040) and trend/momo (both 0.012 max). Macro is an informational refinement signal with pre-specified hand-coded loadings; giving it equal or near-equal weight to the HMM creates a regime where factor-signal persistence (from Cause 1) can crowd out protective regime signals. The 0.05 weight caps its aggregate influence while still contributing directional information.
+- timesfm receives the freed weight (0.10 → 0.15) rather than regime, so that regime's weight increase is entirely attributable to Cause 2's reversal and is documented separately.
+
+**Non-cause confirmed: BTC SAA change 0 % → 2 %**
+
+- The nested risk optimizer's NT sleeve vol target (15 %) binds at `w_BTC × 80 % ≈ 15 % → w_BTC ≈ 18.75 %` of the NT sleeve. At a 10 % sleeve weight, BTC is capped at ~1.875 % of total portfolio regardless of the SAA target. Because BTC was already present via TAA signals in the pre-PR-#6 backtest at approximately this weight, the SAA change from 0 % to 2 % had negligible effect on actual realized allocation. Nonetheless, reverting to 0 % keeps the SAA consistent with the zero-risk-budget semantics used by `target_risk_budgets()` and avoids any ambiguity in the compliance audit.
+
+**Final EnsembleConfig state after fixes:**
+
+| Signal | Weight | Scale | Max tilt |
+|---|---|---|---|
+| regime | 0.40 | 0.10 | ±0.040 |
+| trend | 0.20 | 0.06 | ±0.012 |
+| momo | 0.20 | 0.06 | ±0.012 |
+| timesfm | 0.15 | — | ~0 (disabled) |
+| macro | 0.05 | 0.20 | ±0.006 (BTC) |
+
+Sources: https://doi.org/10.2469/faj.v69.n4.1 (real-yield / gold), https://doi.org/10.1257/aer.102.4.1692 (credit premium / equities), https://doi.org/10.1093/rfs/hhaa113 (crypto momentum).

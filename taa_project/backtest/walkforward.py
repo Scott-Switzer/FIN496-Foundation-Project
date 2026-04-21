@@ -535,9 +535,15 @@ def run_walkforward(
     trend_signals = trend_score(prices.loc[:, ALL_SAA])
     momo_signals = cross_sectional_rank(adm_score(prices.loc[:, ALL_SAA]), SLEEVE_BUCKETS)
     fred_features = build_features(fred)
+    # Use the base 4-feature set (VIXCLS, BAMLH0A0HYM2, T10Y3M, NFCI — available from 2001)
+    # to anchor train_start.  Extended features like DFII10 only start 2003-01-02, so
+    # fred_features.index.min() would be 2003 and leave the smoke-test window with no
+    # training history.  The HMM fold logic uses fred_features directly, so it naturally
+    # trains on whichever rows are available after the fold's train_start.
+    _base_features = build_features(fred, use_extended=False)
+    train_start = max(pd.Timestamp("2001-01-01"), _base_features.index.min())
 
     decision_dates = build_monthly_decision_dates(prices.loc[:, ALL_SAA], start, end)
-    train_start = max(pd.Timestamp("2001-01-01"), fred_features.index.min())
     fold_specs = build_walkforward_folds(decision_dates, train_start=train_start, folds=folds, embargo_business_days=embargo_business_days)
     folds_df = fold_specs_to_frame(fold_specs)
 

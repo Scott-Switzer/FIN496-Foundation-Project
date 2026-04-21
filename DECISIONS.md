@@ -173,3 +173,32 @@
 | macro | 0.05 | 0.20 | ±0.006 (BTC) |
 
 Sources: https://doi.org/10.2469/faj.v69.n4.1 (real-yield / gold), https://doi.org/10.1257/aer.102.4.1692 (credit premium / equities), https://doi.org/10.1093/rfs/hhaa113 (crypto momentum).
+
+## 2026-04-21 — Corrected root cause: DFII10 in HMM was the dominant return inflator
+
+**Context**: Commit `163cdf2` implemented three fixes (z-score window, ensemble weights, SAA revert) based on a root-cause attribution that incorrectly labelled `_ZSCORE_WINDOW=252` as the dominant cause. The v3 diagnostic baseline after those fixes returned 11.87%/−33.61% — only 23 bps below the pre-fix 12.10%/−33.46%. The three fixes barely moved the result because they targeted the macro_factor channel (weight 0.05, max tilt ±0.006), while the actual dominant cause was operating through the HMM regime channel (weight 0.40, max tilt ±0.040 — 6.7× larger).
+
+**Actual dominant root cause: DFII10 as the 5th HMM feature**
+
+- The `build_features(fred)` call in `walkforward.py` (line 537, pre-fix) returned a 5-feature panel including DFII10.
+- This 5-feature panel was passed as `fred_features` to `build_signal_bundle_at_date` (line 592), which in turn passed slices of it to `fit_hmm()` and `classify_states()`.
+- DFII10 declined persistently from ~2.5 % (2003) to ~−1 % (2021) due to QE. In z-scored space (against the expanding training mean anchored at pre-QE levels), DFII10 was a near-constant −1 to −2 standard deviations below its training mean throughout 2009–2021.
+- `_state_stress_scores()` treats DFII10 as a stress contributor (`score += means[DFII10]`). A persistently negative DFII10 z-score therefore suppressed the stress score of whichever HMM state occupied the 2009–2021 observations, causing it to be classified as "risk_on" in `_interpret_state_names`.
+- This labelled roughly 144 months (2009–2021) as "risk_on" → `REGIME_TILT["risk_on"]["SPXT"] = 0.42` vs neutral 0.35 → systematic 7 % excess equity allocation across the entire bull market.
+- At `regime_weight=0.40`, the regime signal contributes up to ±0.040 per asset — 6.7× the macro_factor channel max of ±0.006. Our earlier fixes had addressed only the subordinate channel.
+
+**The fix (commit after 163cdf2)**:
+
+In `run_walkforward()`, FRED features are now split into two separate panels:
+- `fred_features = build_features(fred)` — 5-feature set (with DFII10), passed only to `compute_macro_factor_mu()` for the real_yield_tilt sub-signal.
+- `hmm_features = build_features(fred, use_extended=False)` — 4-feature set (VIXCLS, BAMLH0A0HYM2, T10Y3M, NFCI), passed to `build_signal_bundle_at_date()` for all HMM training and classification.
+
+HMM regime labels now depend only on stationary, mean-reverting stress indicators that cannot produce a decade-long persistent "risk_on" bias. DFII10 information is still used in the macro_factor real_yield_tilt signal (weight 0.05, max ±0.006) but is no longer embedded in the primary risk governor (regime, weight 0.40).
+
+**Why the previous three fixes were still correct and are kept**:
+- `_ZSCORE_WINDOW 252→63`: correct practice regardless — 252-day window did produce a persistent positive macro_factor signal through its own (smaller) channel. Keeping 63.
+- `regime_weight 0.40→0.40` (restored): correct — regime is the primary risk governor and should have the largest weight among causal signal layers.
+- `macro_factor_weight 0.05`: correct — keeps macro as a subordinate refinement signal at ±0.006 max contribution.
+- SAA revert: correct — BITCOIN SAA zero is consistent with the zero risk-budget semantics.
+
+Sources: Hamilton (1989) https://doi.org/10.2307/1912559; Erb & Harvey (2013) https://doi.org/10.2469/faj.v69.n4.1.

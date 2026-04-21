@@ -534,14 +534,26 @@ def run_walkforward(
 
     trend_signals = trend_score(prices.loc[:, ALL_SAA])
     momo_signals = cross_sectional_rank(adm_score(prices.loc[:, ALL_SAA]), SLEEVE_BUCKETS)
+    # 5-feature set (includes DFII10) — used ONLY for the macro_factor signal.
+    # real_yield_tilt() reads DFII10 from this panel; at macro_factor_weight=0.05
+    # and macro_scale=0.20 the maximum contribution per asset is ±0.006 (subordinate).
     fred_features = build_features(fred)
-    # Use the base 4-feature set (VIXCLS, BAMLH0A0HYM2, T10Y3M, NFCI — available from 2001)
-    # to anchor train_start.  Extended features like DFII10 only start 2003-01-02, so
-    # fred_features.index.min() would be 2003 and leave the smoke-test window with no
-    # training history.  The HMM fold logic uses fred_features directly, so it naturally
-    # trains on whichever rows are available after the fold's train_start.
-    _base_features = build_features(fred, use_extended=False)
-    train_start = max(pd.Timestamp("2001-01-01"), _base_features.index.min())
+
+    # 4-feature set (VIXCLS, BAMLH0A0HYM2, T10Y3M, NFCI) — used for ALL HMM training
+    # and regime classification.  DFII10 is intentionally excluded from the HMM:
+    # DFII10 declined persistently from ~2.5 % (2003) to ~−1 % (2021) due to QE,
+    # producing a near-constant negative z-score relative to the expanding training mean.
+    # Because _state_stress_scores() treats DFII10 as a stress contributor, a
+    # persistently negative z kept stress scores low and caused the HMM to label nearly
+    # all 2009–2021 months as 'risk_on' regardless of actual market conditions.
+    # At regime_weight=0.40 × regime_scale=0.10, the regime signal can shift weights
+    # by up to ±0.040 per asset — 6.7× the macro_factor channel (±0.006).  This was
+    # the actual dominant root cause of the 4.6 % return inflation.
+    # Regime labels should be driven by stationary stress indicators (VIX, HY spreads,
+    # yield curve, NFCI) that mean-revert within quarters, not by a decade-long
+    # real-rate trend.  See DECISIONS.md for the full root-cause attribution.
+    hmm_features = build_features(fred, use_extended=False)
+    train_start = max(pd.Timestamp("2001-01-01"), hmm_features.index.min())
 
     decision_dates = build_monthly_decision_dates(prices.loc[:, ALL_SAA], start, end)
     fold_specs = build_walkforward_folds(decision_dates, train_start=train_start, folds=folds, embargo_business_days=embargo_business_days)
@@ -589,7 +601,7 @@ def run_walkforward(
         signal_bundle, current_hmm_model = build_signal_bundle_at_date(
             decision_date=pd.Timestamp(decision_date),
             fold_spec=fold_spec,
-            fred_features=fred_features,
+            fred_features=hmm_features,  # 4-feature set (no DFII10) for HMM
             trend_signals=trend_signals,
             momo_signals=momo_signals,
             prices=prices.loc[:, ALL_SAA],

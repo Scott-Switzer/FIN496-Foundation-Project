@@ -318,10 +318,12 @@ def crypto_momentum_tilt(
         return full
 
     blended = float(np.mean(scores))
-    # Clip to [-cap, +cap] and zero out negative momentum (absolute momentum rule)
+    # Clip to [-cap, +cap] to prevent extreme leverage during blow-off tops.
     clipped = float(np.clip(blended, -_BTC_SIGNAL_CAP, _BTC_SIGNAL_CAP))
-    # Absolute momentum guardrail: negative momentum → no positive tilt
-    btc_signal = max(clipped, 0.0) if clipped >= 0.0 else clipped
+    # Pass through both positive and negative momentum scores.  A negative
+    # score tells the optimizer to underweight BTC below its SAA target;
+    # a positive score allows overweighting up to the IPS 5% ceiling.
+    btc_signal = clipped
 
     full["BITCOIN"] = btc_signal
     return full

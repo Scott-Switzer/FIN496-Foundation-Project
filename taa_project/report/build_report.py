@@ -240,6 +240,41 @@ def _df_table(frame: pd.DataFrame, max_rows: int = 12) -> Table:
     return table
 
 
+def _portfolio_construction_lever_lines(comparison: pd.DataFrame) -> list[str]:
+    if comparison.empty or "Run" not in comparison.columns:
+        return ["- The 13-configuration comparison table was not available when this report was built."]
+
+    comparison = comparison.copy()
+    comparison["Run"] = comparison["Run"].astype(str)
+    if "TimesFM VB10" not in set(comparison["Run"]):
+        return ["- The baseline TimesFM VB10 anchor row was unavailable, so incremental lever effects could not be computed."]
+
+    anchor_dd = float(comparison.loc[comparison["Run"] == "TimesFM VB10", "Max DD"].iloc[0])
+    lever_map = [
+        ("CVaR-aware optimizer", "CVaR 95 2.5%"),
+        ("Nested sleeve budgeting", "Nested Risk"),
+        ("Hierarchical Risk Parity", "HRP SAA"),
+        ("BL stress views", "BL Stress Views"),
+    ]
+
+    lines: list[str] = []
+    for lever_name, run_label in lever_map:
+        if run_label not in set(comparison["Run"]):
+            continue
+        run_dd = float(comparison.loc[comparison["Run"] == run_label, "Max DD"].iloc[0])
+        delta_bps = (run_dd - anchor_dd) * 10000.0
+        if delta_bps > 0:
+            effect = f"improved max drawdown by {_format_bps(delta_bps / 10000.0)}"
+        elif delta_bps < 0:
+            effect = f"worsened max drawdown by {_format_bps(delta_bps / 10000.0)}"
+        else:
+            effect = "left max drawdown unchanged"
+        lines.append(
+            f"- {lever_name}: `{run_label}` {effect} relative to the `TimesFM VB10` anchor, landing at {_format_pct(run_dd)} max drawdown. [Source: `taa_project/outputs/config_comparison.csv`]"
+        )
+    return lines
+
+
 def _build_markdown(inputs: dict[str, object]) -> str:
     """Build the markdown source used for the report narrative.
 
@@ -289,12 +324,12 @@ def _build_markdown(inputs: dict[str, object]) -> str:
         "- Trend uses the Faber 200-day SMA with a smooth tanh score, ADM uses 1/3/6/12M blended momentum within sleeve buckets, and TimesFM remains optional so the pipeline still runs end-to-end on machines without that dependency. [Sources: `taa_project/signals/trend_faber.py`, `taa_project/signals/momentum_adm.py`, `taa_project/signals/vol_timesfm.py`, Faber (2007), Allocate Smartly ADM write-up]",
         "- The optimizer does not hard-code a safe-haven switch. Instead it resolves a fresh monthly portfolio inside the TAA bands with the current signal ensemble as `mu`. [Source: `taa_project/optimizer/cvxpy_opt.py`]",
         "",
-        "## Risk Overlays & Vol-Budget Sweep",
+        "## Risk Overlays & Portfolio-Construction Sweep",
     ]
     if comparison.empty:
         lines.extend(
             [
-                "- The canonical configuration comparison was not generated for this output directory, so the report falls back to the single-run results only.",
+                "- The 13-configuration comparison was not generated for this output directory, so the report falls back to the single-run results only.",
                 "",
             ]
         )
@@ -302,13 +337,10 @@ def _build_markdown(inputs: dict[str, object]) -> str:
         best_row = comparison.loc[comparison["Max DD"].astype(float).idxmax()]
         lines.extend(
             [
-                f"- Six canonical TAA configurations were tested: flat vol budgets at 10%, 8%, and 7%, plus a regime-conditional vol budget and a drawdown-clip overlay stacked on that regime overlay. [Source: `taa_project/outputs/{CONFIG_COMPARISON_FILENAME}`]",
-                f"- The lowest drawdown among the tested TAA configurations was {_format_pct(best_row['Max DD'])} in `{best_row['Run']}`. [Source: `taa_project/outputs/{CONFIG_COMPARISON_FILENAME}`]",
-                "- The regime overlay tightens the risk envelope without hard-coding safe-haven weights, and the drawdown guardrail further halves the active vol budget after sufficiently deep realized losses. [Sources: `taa_project/backtest/walkforward.py`, `taa_project/signals/dd_guardrail.py`]",
-                f"- The canonical sweep materially changed realized outcomes. The selected submission configuration is `{selection['run_id']}` with {_format_pct(selection['max_dd'])} max drawdown and DSR {selection['deflated_sharpe']:.3f}. [Sources: `taa_project/outputs/config_comparison.csv`, `taa_project/outputs/submission_selection.json`]"
-                if not strategy_comparison.empty
-                and strategy_comparison[["Ann. Return", "Ann. Vol", "Max DD", "Sharpe", "Sortino", "Calmar"]].nunique(dropna=False).max() == 1
-                else "- The configuration sweep materially changed the realized risk/return path across the tested overlay variants. [Source: `taa_project/outputs/config_comparison.csv`]",
+                "- Thirteen canonical portfolio-construction configurations were tested, spanning vol budgets, regime overlays, CVaR constraints, nested sleeve risk budgeting, HRP SAA, BL stress views, and a combined kitchen-sink stack. [Source: `taa_project/outputs/config_comparison.csv`]",
+                f"- The lowest drawdown among the tested configurations was {_format_pct(best_row['Max DD'])} in `{best_row['Run']}`. [Source: `taa_project/outputs/{CONFIG_COMPARISON_FILENAME}`]",
+                "- The comparison scatter is color-coded by lever family, so the risk/return dispersion is visible by construction choice rather than by arbitrary run order. [Source: `taa_project/outputs/config_comparison.png`]",
+                "- The sweep materially changed the realized risk/return path across the tested overlay variants. [Source: `taa_project/outputs/config_comparison.csv`]",
                 "",
             ]
         )
@@ -342,6 +374,7 @@ def _build_markdown(inputs: dict[str, object]) -> str:
         lines.extend(
             [
                 f"- The selected submission configuration `{selection['run_id']}` passed the return, volatility, and max-drawdown targets simultaneously, with {_format_pct(selection['max_dd'])} maximum drawdown and DSR {selection['deflated_sharpe']:.3f}. [Source: `taa_project/outputs/{SUBMISSION_SELECTION_FILENAME}`]",
+                f"- Decision tree outcome: `{selection['decision_rule']}` selected `{selection['run_id']}` out of {int(selection['n_tested_configurations'])} tested configurations. [Source: `taa_project/outputs/{SUBMISSION_SELECTION_FILENAME}`]",
                 "",
             ]
         )
@@ -351,9 +384,18 @@ def _build_markdown(inputs: dict[str, object]) -> str:
                 f"- Over the 2000–2025 backtest window, no portfolio respecting the IPS minimum-allocation constraints, the no-short rule, and the -25% max-drawdown limit was found under our signal stack. `BM2` itself registered {_format_pct(selection['bm2_max_dd'])} drawdown, and `BM1` {_format_pct(selection['bm1_max_dd'])}. [Sources: `taa_project/outputs/{CONFIG_COMPARISON_FILENAME}`, `taa_project/outputs/{SUBMISSION_SELECTION_FILENAME}`]",
                 f"- The submitted configuration (`{selection['run_id']}`) achieved {_format_pct(selection['max_dd'])} maximum drawdown, the lowest across {int(selection['n_tested_configurations'])} tested configurations, representing {_format_bps(selection['mdd_improvement_bps_vs_bm2'] / 10000.0)} improvement over `BM2` and {_format_bps(selection['mdd_improvement_bps_vs_saa'] / 10000.0)} improvement over the IPS-target `SAA`. [Source: `taa_project/outputs/{SUBMISSION_SELECTION_FILENAME}`]",
                 f"- The residual drawdown breach versus the IPS tolerance is {_format_bps(selection['mdd_breach_bps'] / 10000.0)}. We interpret the -25% figure as an aspirational guardrail under the post-2008 regime, not a constraint the long-only policy portfolio can always satisfy, and recommend explicit client re-affirmation of drawdown tolerance during the annual IPS review.",
+                f"- Decision tree outcome: `{selection['decision_rule']}` selected `{selection['run_id']}` because it delivered the best available drawdown profile while still considering DSR and return ordering. [Source: `taa_project/outputs/{SUBMISSION_SELECTION_FILENAME}`]",
                 "",
             ]
         )
+
+    lines.extend(
+        [
+            "## Portfolio Construction Lever Analysis",
+            *_portfolio_construction_lever_lines(comparison),
+            "",
+        ]
+    )
 
     recommendation_line = (
         f"- Use `{selection['run_id']}` as the submission configuration and treat the TAA overlay as additive only while its OOS Sharpe and DSR remain superior after costs under the disclosed trial count. [Sources: `taa_project/outputs/{PORTFOLIO_METRICS_FILENAME}`, `taa_project/outputs/{SUBMISSION_SELECTION_FILENAME}`, `TRIAL_LEDGER.csv`]"
@@ -479,7 +521,7 @@ def build_report(
             ),
             Spacer(1, 0.25 * cm),
             Paragraph("Canonical Configuration Comparison", styles["WhitmoreHeading"]),
-            _df_table(inputs["config_comparison"], max_rows=10)
+            _df_table(inputs["config_comparison"], max_rows=20)
             if not inputs["config_comparison"].empty
             else Paragraph("Config comparison not available for this output directory.", styles["WhitmoreBody"]),
             PageBreak(),

@@ -25,6 +25,7 @@ Outputs (taa_project/outputs/):
 from __future__ import annotations
 
 import argparse
+import logging
 from pathlib import Path
 
 import matplotlib
@@ -40,6 +41,7 @@ from sklearn.covariance import LedoitWolf
 
 from taa_project.config import (
     ALL_SAA,
+    EQUITY_ASSETS,
     COST_PER_TURNOVER,
     OUTPUT_DIR,
     PRICES_CSV,
@@ -78,6 +80,7 @@ METHODS = [
     "min_variance",
     "risk_parity",
     "max_diversification",
+    "hrp",
     "mean_variance",
 ]
 
@@ -87,6 +90,7 @@ METHOD_LABELS = {
     "min_variance":       "Minimum Variance",
     "risk_parity":        "Risk Parity",
     "max_diversification":"Max Diversification",
+    "hrp":                "Hierarchical Risk Parity",
     "mean_variance":      "Mean-Variance",
     "bm1":                "BM1 (60/40)",
     "bm2":                "BM2 (Policy)",
@@ -98,6 +102,7 @@ METHOD_COLORS = {
     "min_variance":        "#2A9D8F",
     "risk_parity":         "#457B9D",
     "max_diversification": "#6A4C93",
+    "hrp":                 "#264653",
     "mean_variance":       "#F72585",
     "bm1":                 "#888888",
     "bm2":                 "#333333",
@@ -120,6 +125,8 @@ STYLE = {
     "axes.spines.right": False,
     "font.family":       "sans-serif",
 }
+
+LOGGER = logging.getLogger(__name__)
 
 
 # LedoitWolf imported but used only for MV — other methods use the project's
@@ -216,6 +223,100 @@ def solve_max_diversification(assets: list[str], covariance: pd.DataFrame) -> pd
     return full
 
 
+def solve_hierarchical_risk_parity(
+    assets: list[str],
+    covariance: pd.DataFrame,
+) -> pd.Series:
+    """López de Prado (2016) Hierarchical Risk Parity.
+
+    Algorithm:
+    1. Compute the correlation distance matrix `d_ij = sqrt(0.5 * (1 - rho_ij))`.
+    2. Run single-linkage hierarchical clustering.
+    3. Quasi-diagonalize the covariance matrix by the cluster leaf order.
+    4. Apply recursive bisection using inverse-variance cluster allocations.
+
+    Citation:
+    - López de Prado, M. (2016), "Building Diversified Portfolios that
+      Outperform Out-of-Sample":
+      https://jpm.pm-research.com/content/42/4/59
+    - Quantopian public HRP reference implementation:
+      https://github.com/quantopian/research_public/blob/master/research/hierarchical_risk_parity.py
+
+    Point-in-time safety:
+    - Safe. The function uses only the supplied covariance matrix, which is
+      built upstream from data observed on or before the rebalance date.
+    """
+
+    if len(assets) < 4:
+        LOGGER.warning("HRP fallback to inverse volatility because only %d assets are available.", len(assets))
+        return solve_inverse_vol(assets, covariance)
+
+    from scipy.cluster.hierarchy import linkage
+    from scipy.spatial.distance import squareform
+
+    cov = covariance.loc[assets, assets].to_numpy(dtype=float)
+    corr = _cov_to_corr(cov)
+    dist = np.sqrt(np.maximum(0.5 * (1.0 - corr), 0.0))
+    np.fill_diagonal(dist, 0.0)
+    link = linkage(squareform(dist, checks=False), method="single")
+    sort_idx = _quasi_diagonal(link)
+    hrp_weights = _recursive_bisection(cov, sort_idx)
+    out = pd.Series(0.0, index=assets, dtype=float)
+    for position, cov_index in enumerate(sort_idx):
+        out.iloc[cov_index] = hrp_weights[position]
+    return _feasible_projection(out.to_numpy(dtype=float), assets)
+
+
+def _cov_to_corr(cov: np.ndarray) -> np.ndarray:
+    std = np.sqrt(np.maximum(np.diag(cov), DIAGONAL_FLOOR))
+    corr = cov / np.outer(std, std)
+    np.fill_diagonal(corr, 1.0)
+    return np.clip(corr, -1.0, 1.0)
+
+
+def _quasi_diagonal(link: np.ndarray) -> list[int]:
+    sort_idx = pd.Series([int(link[-1, 0]), int(link[-1, 1])])
+    num_items = int(link[-1, 3])
+    while int(sort_idx.max()) >= num_items:
+        sort_idx.index = range(0, sort_idx.shape[0] * 2, 2)
+        cluster_items = sort_idx[sort_idx >= num_items]
+        indices = cluster_items.index.to_list()
+        values = (cluster_items.to_numpy(dtype=int) - num_items).tolist()
+        sort_idx.loc[indices] = [int(link[value, 0]) for value in values]
+        right_items = pd.Series([int(link[value, 1]) for value in values], index=[index + 1 for index in indices])
+        sort_idx = pd.concat([sort_idx, right_items]).sort_index()
+        sort_idx.index = range(sort_idx.shape[0])
+    return sort_idx.astype(int).tolist()
+
+
+def _cluster_variance(cov: np.ndarray, cluster_items: list[int]) -> float:
+    cluster_cov = cov[np.ix_(cluster_items, cluster_items)]
+    inverse_variance = 1.0 / np.maximum(np.diag(cluster_cov), DIAGONAL_FLOOR)
+    inverse_variance /= inverse_variance.sum()
+    return float(inverse_variance @ cluster_cov @ inverse_variance)
+
+
+def _recursive_bisection(cov: np.ndarray, sort_idx: list[int]) -> np.ndarray:
+    weights = pd.Series(1.0, index=sort_idx, dtype=float)
+    clusters = [sort_idx]
+    while clusters:
+        clusters = [
+            cluster[start:stop]
+            for cluster in clusters
+            for start, stop in ((0, len(cluster) // 2), (len(cluster) // 2, len(cluster)))
+            if len(cluster) > 1
+        ]
+        for index in range(0, len(clusters), 2):
+            left_cluster = clusters[index]
+            right_cluster = clusters[index + 1]
+            left_var = _cluster_variance(cov, left_cluster)
+            right_var = _cluster_variance(cov, right_cluster)
+            alpha = 1.0 - left_var / (left_var + right_var)
+            weights[left_cluster] *= alpha
+            weights[right_cluster] *= 1.0 - alpha
+    return weights.loc[sort_idx].to_numpy(dtype=float)
+
+
 def momentum_returns(
     returns: pd.DataFrame,
     as_of_date: pd.Timestamp,
@@ -267,6 +368,57 @@ def bl_equilibrium_returns(
     w_ref = project_weights_to_feasible_set(w_bm2.values, lower, upper, assets)
     pi = rf + risk_aversion * (cov @ w_ref)
     return pd.Series(pi, index=assets)
+
+
+def bl_with_stress_views(
+    policy_weights: pd.Series,
+    covariance: pd.DataFrame,
+    risk_aversion: float = 2.5,
+    regime_label: str | None = None,
+    stress_equity_shock_sigmas: float = 1.0,
+    equity_assets: list[str] | None = None,
+) -> pd.Series:
+    """Black-Litterman prior with regime-conditional pessimistic equity views.
+
+    When `regime_label == "stress"`, each equity asset's equilibrium prior is
+    shifted down by `stress_equity_shock_sigmas` annualized standard deviations.
+    Otherwise the unmodified equilibrium prior is returned.
+
+    Citation:
+    - Black & Litterman (1992), "Global Portfolio Optimization":
+      https://www.jstor.org/stable/4479577
+    - He & Litterman (1999), "The Intuition Behind Black-Litterman Model Portfolios":
+      https://faculty.fuqua.duke.edu/~charvey/Teaching/BA453_2006/He_Litterman_Black-Litterman.pdf
+
+    Point-in-time safety:
+    - Safe. The function uses only the supplied policy weights, covariance, and
+      regime label, all of which are causal at the decision date.
+    """
+
+    assets = covariance.index.tolist()
+    cov = covariance.loc[assets, assets].to_numpy(dtype=float)
+    cov = (cov + cov.T) / 2.0
+    cov = cov + 1e-8 * np.eye(len(assets))
+    aligned_policy_weights = policy_weights.reindex(assets).fillna(0.0).astype(float)
+    if float(aligned_policy_weights.sum()) > 0.0:
+        aligned_policy_weights /= float(aligned_policy_weights.sum())
+    else:
+        aligned_policy_weights[:] = 1.0 / len(assets)
+
+    equilibrium = pd.Series(
+        RF_ANNUAL + risk_aversion * (cov @ aligned_policy_weights.to_numpy(dtype=float)),
+        index=assets,
+        dtype=float,
+    )
+    if regime_label != "stress":
+        return equilibrium
+
+    out = equilibrium.copy()
+    equity_universe = EQUITY_ASSETS if equity_assets is None else equity_assets
+    for asset in equity_universe:
+        if asset in out.index:
+            out.loc[asset] -= stress_equity_shock_sigmas * float(np.sqrt(covariance.loc[asset, asset] + 1e-8))
+    return out
 
 
 def blended_expected_returns(
@@ -378,6 +530,8 @@ def compute_weights_for_method(
         return solve_risk_parity(assets, covariance)
     if method == "max_diversification":
         return solve_max_diversification(assets, covariance)
+    if method == "hrp":
+        return solve_hierarchical_risk_parity(assets, covariance)
     if method == "mean_variance":
         mu = blended_expected_returns(returns, rebalance_date, covariance, assets)
         return solve_mean_variance(assets, covariance, mu)

@@ -229,7 +229,7 @@ def build_deck(
             ),
         ],
         [
-            Paragraph("Risk Overlays & Vol-Budget Sweep", styles["DeckHeading"]),
+            Paragraph("Portfolio Construction Sensitivity", styles["DeckHeading"]),
             Image(str(figure_dir / "config_comparison.png"), width=22.0 * cm, height=10.0 * cm)
             if (figure_dir / "config_comparison.png").exists()
             else Paragraph("Config comparison figure not available for this output directory.", styles["DeckBody"]),
@@ -238,17 +238,17 @@ def build_deck(
                 _bullet_list(
                     [
                         f"Selected configuration: {selection['run_id']} ({selection['display_name']}).",
-                        f"Best tested max drawdown: {100.0 * float(selection['max_dd']):.2f}% across {int(selection['n_tested_configurations'])} canonical configurations.",
-                        "TimesFM plus an 8% internal vol budget produced the smallest drawdown breach while still beating BM2 on DSR.",
-                        "Overlays only tighten the risk envelope; they do not hard-code a safe-haven allocation.",
+                        f"Best tested max drawdown: {100.0 * float(selection['max_dd']):.2f}% across {int(selection['n_tested_configurations'])} portfolio-construction configurations.",
+                        "The scatter is color-coded by lever family: vol-only, CVaR, nested sleeves, HRP, BL stress views, and the kitchen-sink stack.",
+                        "Risk-off behavior still emerges from the optimizer and regime inputs; there is no hard-coded safe-haven floor.",
                     ],
                     styles,
                 )
                 if selection is not None
                 else _bullet_list(
                     [
-                        "Six canonical configurations are compared here once the sweep artifacts are present.",
-                        "Overlays only tighten the risk envelope; they do not hard-code a safe-haven allocation.",
+                        "Thirteen portfolio-construction configurations are compared here once the sweep artifacts are present.",
+                        "The scatter is color-coded by lever family rather than arbitrary run order.",
                     ],
                     styles,
                 )

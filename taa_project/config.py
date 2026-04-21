@@ -10,13 +10,17 @@ PACKAGE_ROOT = Path(__file__).resolve().parent
 REPO_ROOT = PACKAGE_ROOT.parent
 DATA_DIR = REPO_ROOT / "data"
 OUTPUT_DIR = PACKAGE_ROOT / "outputs"
+CACHE_DIR = OUTPUT_DIR / "cache"
 NOTEBOOK_DIR = PACKAGE_ROOT / "notebooks"
 FIGURES_DIR = OUTPUT_DIR / "figures"
 REPORT_DIR = OUTPUT_DIR / "reports"
 MPLCONFIG_DIR = OUTPUT_DIR / ".mplconfig"
+TIMESFM_CACHE_PATH = CACHE_DIR / "timesfm_forecasts.parquet"
+MEMORY_BREACH_LOG = OUTPUT_DIR / "memory_breaches.log"
 TRIAL_LEDGER_CSV = REPO_ROOT / "TRIAL_LEDGER.csv"
 SUBMISSION_ZIP = REPO_ROOT / "whitmore_taa_submission.zip"
 DEFAULT_RANDOM_SEED = 42
+MAX_PROCESS_RSS_GB = 4.0
 
 # --------------------------------------------------------------------------
 # Asset universe (SAA only — Opportunistic handled separately)
@@ -24,6 +28,7 @@ DEFAULT_RANDOM_SEED = 42
 CORE        = ["SPXT", "FTSE100", "LBUSTRUU", "BROAD_TIPS"]
 SATELLITE   = ["B3REITT", "XAU", "SILVER_FUT", "NIKKEI225", "CSI300_CHINA"]
 NONTRAD     = ["BITCOIN", "CHF_FRANC"]
+EQUITY_ASSETS = ["SPXT", "FTSE100", "NIKKEI225", "CSI300_CHINA"]
 ALL_SAA     = CORE + SATELLITE + NONTRAD
 
 SAA_BANDS: Dict[str, tuple[float, float]] = {

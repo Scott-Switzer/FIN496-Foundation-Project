@@ -565,6 +565,38 @@ def historical_var_95(returns: pd.Series) -> float:
     return float(clean.quantile(0.05)) if not clean.empty else float("nan")
 
 
+def cvar_loss(returns: pd.Series, alpha: float = 0.95) -> float:
+    """Compute historical CVaR loss at confidence level `alpha`.
+
+    Inputs:
+    - `returns`: daily simple return series.
+    - `alpha`: confidence level in `(0.5, 1.0)`.
+
+    Outputs:
+    - Positive loss magnitude equal to the average loss in the worst
+      `(1 - alpha)` tail of the return distribution.
+
+    Citation:
+    - Rockafellar & Uryasev (2000), Conditional Value-at-Risk:
+      http://www.ise.ufl.edu/uryasev/files/2011/11/CVaR1_JOR.pdf
+
+    Point-in-time safety:
+    - Ex-post diagnostic only.
+    """
+
+    if not 0.5 < alpha < 1.0:
+        raise ValueError("alpha must lie strictly between 0.5 and 1.0.")
+    clean = returns.dropna()
+    if clean.empty:
+        return float("nan")
+    losses = -clean
+    var_alpha = float(losses.quantile(alpha))
+    tail_losses = losses.loc[losses >= var_alpha]
+    if tail_losses.empty:
+        return var_alpha
+    return float(tail_losses.mean())
+
+
 def hit_rate(returns: pd.Series) -> float:
     """Compute the share of positive-return days in a portfolio history.
 

@@ -24,9 +24,10 @@ References:
 
 from __future__ import annotations
 
+import gc
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 import pandas as pd
@@ -53,6 +54,7 @@ from taa_project.config import (
     TARGET_VOL,
     TAA_BANDS,
 )
+from taa_project.memory import guard_process_memory
 from taa_project.signals.dd_guardrail import DrawdownGuardrailConfig
 from taa_project.saa.build_saa import (
     SAAOptimizationInputs,
@@ -63,13 +65,18 @@ from taa_project.saa.build_saa import (
     target_risk_budgets,
 )
 
+if TYPE_CHECKING:
+    from taa_project.optimizer.nested_risk import NestedRiskConfig
+
 
 OptimizationMode = Literal["saa_annual", "taa_monthly"]
 BREACH_LOG_PATH = OUTPUT_DIR / "breaches.log"
+OPTIMIZER_BREACHES_PATH = OUTPUT_DIR / "optimizer_breaches.csv"
 DIAGONAL_FLOOR = 1e-6
 DEFAULT_RISK_AVERSION = 3.0
 DEFAULT_VOL_SLACK_PENALTY = 50.0
 DEFAULT_TURNOVER_SMOOTHING = 1e-10
+DEFAULT_CVAR_LOOKBACK_DAYS = 504
 
 
 @dataclass(frozen=True)
@@ -105,7 +112,27 @@ class EnsembleConfig:
     momo_scale: float = 0.06
     vol_budget_by_regime: dict[str, float] | None = None
     use_dd_guardrail: bool = False
+    optimizer_mode: str = "vol"
+    cvar_alpha: float = 0.95
+    cvar_budget: float = 0.025
+    cvar_lookback_days: int = DEFAULT_CVAR_LOOKBACK_DAYS
+    use_nested_risk: bool = False
+    nested_risk_config: NestedRiskConfig | None = None
+    use_bl_stress_views: bool = False
+    bl_stress_shock: float = 1.0
     dd_guardrail_config: DrawdownGuardrailConfig = field(default_factory=DrawdownGuardrailConfig)
+
+    def __post_init__(self) -> None:
+        if self.optimizer_mode not in {"vol", "cvar"}:
+            raise ValueError("optimizer_mode must be either 'vol' or 'cvar'.")
+        if not 0.5 < self.cvar_alpha < 1.0:
+            raise ValueError("cvar_alpha must lie strictly between 0.5 and 1.0.")
+        if not 0.0 < self.cvar_budget < 0.5:
+            raise ValueError("cvar_budget must lie strictly between 0.0 and 0.5.")
+        if self.cvar_lookback_days <= 0 or self.cvar_lookback_days > DEFAULT_CVAR_LOOKBACK_DAYS:
+            raise ValueError(f"cvar_lookback_days must lie in [1, {DEFAULT_CVAR_LOOKBACK_DAYS}].")
+        if self.bl_stress_shock < 0.0:
+            raise ValueError("bl_stress_shock must be non-negative.")
 
 
 @dataclass(frozen=True)
@@ -308,6 +335,194 @@ def _append_breach_log(
         handle.write(f"{pd.Timestamp.utcnow().isoformat()} | mode={mode} | date={date_text} | status={status} | {message}\n")
 
 
+def _append_optimizer_breach_row(
+    as_of_date: pd.Timestamp | None,
+    optimizer_mode: str,
+    breach_type: str,
+    budget: float,
+    realized_value: float,
+    slack_value: float,
+    output_path: Path = OPTIMIZER_BREACHES_PATH,
+) -> None:
+    """Append one structured optimizer-breach row to CSV.
+
+    Inputs:
+    - `as_of_date`: decision date tied to the optimization event.
+    - `optimizer_mode`: active constraint family, e.g. `vol` or `cvar`.
+    - `breach_type`: structured label such as `vol_constraint_relaxed`.
+    - `budget`: requested risk budget.
+    - `realized_value`: realized value associated with the breach.
+    - `slack_value`: non-negative slack consumed by the solver.
+    - `output_path`: CSV destination.
+
+    Outputs:
+    - Appends one row to `optimizer_breaches.csv`.
+
+    Citation:
+    - Rockafellar & Uryasev (2000), Conditional Value-at-Risk:
+      http://www.ise.ufl.edu/uryasev/files/2011/11/CVaR1_JOR.pdf
+    - Whitmore optimizer breach logging requirement.
+
+    Point-in-time safety:
+    - Safe. This is operational logging only.
+    """
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    row = pd.DataFrame(
+        [
+            {
+                "timestamp_utc": pd.Timestamp.utcnow().isoformat(),
+                "date": pd.Timestamp(as_of_date).isoformat() if as_of_date is not None else "",
+                "optimizer_mode": optimizer_mode,
+                "breach_type": breach_type,
+                "budget": float(budget),
+                "realized_value": float(realized_value),
+                "slack_value": float(slack_value),
+            }
+        ]
+    )
+    if output_path.exists():
+        existing = pd.read_csv(
+            output_path,
+            dtype={
+                "timestamp_utc": "string",
+                "date": "string",
+                "optimizer_mode": "string",
+                "breach_type": "string",
+                "budget": "float32",
+                "realized_value": "float32",
+                "slack_value": "float32",
+            },
+        )
+        row = pd.concat([existing, row], ignore_index=True)
+    row.to_csv(output_path, index=False)
+
+
+def _build_cvar_scenarios(
+    asset_log_returns: pd.DataFrame,
+    decision_date: pd.Timestamp,
+    universe: list[str],
+    lookback_days: int = DEFAULT_CVAR_LOOKBACK_DAYS,
+) -> np.ndarray:
+    """Build the strictly causal daily return scenarios used by CVaR mode.
+
+    Inputs:
+    - `asset_log_returns`: audited daily log-return panel.
+    - `decision_date`: current rebalance date.
+    - `universe`: ordered asset universe for the optimization.
+    - `lookback_days`: trailing scenario window length in trading days.
+
+    Outputs:
+    - Float32 matrix of trailing daily log-return scenarios ending at `t-1`.
+
+    Citation:
+    - Rockafellar & Uryasev (2000), Conditional Value-at-Risk:
+      http://www.ise.ufl.edu/uryasev/files/2011/11/CVaR1_JOR.pdf
+
+    Point-in-time safety:
+    - Safe. The scenario matrix excludes `decision_date` itself and uses only
+      realized observations dated strictly earlier than the rebalance.
+    """
+
+    if lookback_days > DEFAULT_CVAR_LOOKBACK_DAYS:
+        raise ValueError(f"CVaR scenario window exceeds the hard cap of {DEFAULT_CVAR_LOOKBACK_DAYS} rows.")
+    window = asset_log_returns.loc[: pd.Timestamp(decision_date) - pd.Timedelta(days=1), universe].tail(lookback_days)
+    if window.empty:
+        return np.empty((0, len(universe)), dtype=np.float32)
+    window = window.dropna(how="any")
+    return window.to_numpy(dtype=np.float32, copy=True)
+
+
+def _historical_cvar_from_matrix(scenario_matrix: np.ndarray, weights: np.ndarray, alpha: float) -> float:
+    losses = -scenario_matrix @ np.asarray(weights, dtype=float)
+    var_alpha = float(np.quantile(losses, alpha))
+    tail_losses = losses[losses >= var_alpha]
+    if tail_losses.size == 0:
+        return var_alpha
+    return float(tail_losses.mean())
+
+
+def _solve_cvar_taa(
+    universe: list[str],
+    expected_returns: pd.Series,
+    scenario_returns: np.ndarray,
+    previous_weights: np.ndarray,
+    lower_bounds: pd.Series,
+    upper_bounds: pd.Series,
+    core_idx: list[int],
+    sat_idx: list[int],
+    nontrad_idx: list[int],
+    cvar_alpha: float,
+    cvar_budget: float,
+    turnover_penalty: float,
+) -> np.ndarray:
+    """Solve the Rockafellar-Uryasev monthly TAA program with strict cleanup.
+
+    Citation:
+    - Rockafellar & Uryasev (2000), Conditional Value-at-Risk:
+      http://www.ise.ufl.edu/uryasev/files/2011/11/CVaR1_JOR.pdf
+    - ECOS solver:
+      https://github.com/embotech/ecos
+    """
+
+    del universe  # Ordering is already embedded in the aligned arrays.
+    if scenario_returns.ndim != 2:
+        raise ValueError("scenario_returns must be a 2D ndarray.")
+    scenario_matrix = np.asarray(scenario_returns, dtype=np.float32)
+    scenario_matrix = scenario_matrix[np.all(np.isfinite(scenario_matrix), axis=1)]
+    t_obs, n_assets = scenario_matrix.shape
+    if t_obs == 0:
+        raise ValueError("CVaR mode requires at least one complete historical scenario row.")
+    if t_obs > DEFAULT_CVAR_LOOKBACK_DAYS:
+        raise ValueError(f"CVaR scenario window exceeds the hard cap of {DEFAULT_CVAR_LOOKBACK_DAYS} rows.")
+
+    expected_vector = expected_returns.to_numpy(dtype=float)
+    lower_vector = lower_bounds.to_numpy(dtype=float)
+    upper_vector = upper_bounds.to_numpy(dtype=float)
+    prev_vector = np.asarray(previous_weights, dtype=float)
+
+    if prev_vector.shape[0] != n_assets:
+        raise ValueError("previous_weights length does not match the CVaR universe.")
+
+    guard_process_memory("cvar:before_problem_build")
+    w = cp.Variable(n_assets, nonneg=True)
+    tau = cp.Variable()
+    u = cp.Variable(t_obs, nonneg=True)
+    losses = -scenario_matrix @ w
+    objective = cp.Minimize(
+        -expected_vector @ w
+        + turnover_penalty * cp.norm(w - prev_vector, 1)
+    )
+    constraints = [
+        cp.sum(w) == 1.0,
+        w >= lower_vector,
+        w <= upper_vector,
+        w <= SINGLE_SLEEVE_MAX,
+        u >= losses - tau,
+        tau + (1.0 / ((1.0 - cvar_alpha) * t_obs)) * cp.sum(u) <= cvar_budget,
+    ]
+    if core_idx:
+        constraints.append(cp.sum(w[core_idx]) >= CORE_FLOOR)
+    if sat_idx:
+        constraints.append(cp.sum(w[sat_idx]) <= SATELLITE_CAP)
+    if nontrad_idx:
+        constraints.append(cp.sum(w[nontrad_idx]) <= NONTRAD_CAP)
+    prob = cp.Problem(objective, constraints)
+
+    try:
+        guard_process_memory("cvar:before_solve")
+        prob.solve(solver=cp.ECOS, verbose=False)
+        guard_process_memory("cvar:after_solve")
+        if w.value is None:
+            raise RuntimeError(f"CVaR solver returned no solution. Problem status: {prob.status}")
+        out = np.array(w.value, dtype=np.float64)
+    finally:
+        del w, tau, u, losses, objective, constraints, prob
+        gc.collect()
+        guard_process_memory("cvar:after_cleanup")
+    return out
+
+
 def _finalize_result(
     weights: pd.Series,
     mode: OptimizationMode,
@@ -416,6 +631,8 @@ def solve_taa_monthly_result(
     vol_budget: float = TARGET_VOL,
     vol_slack_penalty: float = DEFAULT_VOL_SLACK_PENALTY,
     breach_log_path: Path = BREACH_LOG_PATH,
+    config: EnsembleConfig | None = None,
+    scenario_returns: np.ndarray | None = None,
 ) -> OptimizationResult:
     """Solve the monthly TAA portfolio from the signal-ensemble score.
 
@@ -430,6 +647,9 @@ def solve_taa_monthly_result(
     - `vol_budget`: ex-ante volatility soft ceiling.
     - `vol_slack_penalty`: penalty applied to the volatility slack variable.
     - `breach_log_path`: path to `breaches.log`.
+    - `config`: optional monthly-optimizer configuration bundle.
+    - `scenario_returns`: strictly causal float32 scenario matrix used only in
+      CVaR mode.
 
     Outputs:
     - `OptimizationResult` for the monthly TAA rebalance.
@@ -481,6 +701,7 @@ def solve_taa_monthly_result(
         .fillna(0.0)
         .to_numpy(dtype=float)
     )
+    solve_config = EnsembleConfig() if config is None else config
     sigma = cov_matrix.reindex(index=universe, columns=universe).fillna(0.0).to_numpy(dtype=float)
     sigma = (sigma + sigma.T) / 2.0
     if len(universe) > 0:
@@ -489,21 +710,50 @@ def solve_taa_monthly_result(
     prev = prev_weights.reindex(universe).fillna(0.0).to_numpy(dtype=float)
     lower_bounds, upper_bounds = _taa_bounds_for_assets(universe)
 
-    try:
-        weights = cp.Variable(len(universe), nonneg=True)
-        vol_slack = cp.Variable(nonneg=True)
-        turnover = cp.norm(weights - prev, 1)
-        constraints = [
-            cp.sum(weights) == 1.0,
-            weights >= lower_bounds.to_numpy(dtype=float),
-            weights <= upper_bounds.to_numpy(dtype=float),
-            weights <= SINGLE_SLEEVE_MAX,
-            cp.quad_form(weights, cp.psd_wrap(sigma)) <= vol_budget**2 + vol_slack,
-        ]
+    core_idx = _idx(universe, CORE)
+    sat_idx = _idx(universe, SATELLITE)
+    nontrad_idx = _idx(universe, NONTRAD)
 
-        core_idx = _idx(universe, CORE)
-        sat_idx = _idx(universe, SATELLITE)
-        nontrad_idx = _idx(universe, NONTRAD)
+    try:
+        if solve_config.optimizer_mode == "vol":
+            weights = cp.Variable(len(universe), nonneg=True)
+            turnover = cp.norm(weights - prev, 1)
+            constraints = [
+                cp.sum(weights) == 1.0,
+                weights >= lower_bounds.to_numpy(dtype=float),
+                weights <= upper_bounds.to_numpy(dtype=float),
+                weights <= SINGLE_SLEEVE_MAX,
+            ]
+            vol_slack = cp.Variable(nonneg=True)
+            constraints.append(cp.quad_form(weights, cp.psd_wrap(sigma)) <= vol_budget**2 + vol_slack)
+            slack_penalty = vol_slack_penalty * vol_slack
+        else:
+            if scenario_returns is None:
+                raise ValueError("CVaR mode requires `scenario_returns` built from strictly causal return history.")
+            raw_weights = _solve_cvar_taa(
+                universe=universe,
+                expected_returns=pd.Series(mu, index=universe, dtype=float),
+                scenario_returns=scenario_returns,
+                previous_weights=prev,
+                lower_bounds=lower_bounds,
+                upper_bounds=upper_bounds,
+                core_idx=core_idx,
+                sat_idx=sat_idx,
+                nontrad_idx=nontrad_idx,
+                cvar_alpha=solve_config.cvar_alpha,
+                cvar_budget=solve_config.cvar_budget,
+                turnover_penalty=turnover_cost,
+            )
+            full_weights = _full_weights(raw_weights, universe)
+            return _finalize_result(
+                full_weights,
+                "taa_monthly",
+                "optimal",
+                prev_weights,
+                cov_matrix,
+                turnover_cost,
+                False,
+            )
         if core_idx:
             constraints.append(cp.sum(weights[core_idx]) >= CORE_FLOOR)
         if sat_idx:
@@ -515,7 +765,7 @@ def solve_taa_monthly_result(
             mu @ weights
             - risk_aversion * cp.quad_form(weights, cp.psd_wrap(sigma))
             - turnover_cost * turnover
-            - vol_slack_penalty * vol_slack
+            - slack_penalty
         )
         problem = cp.Problem(objective, constraints)
 
@@ -529,6 +779,18 @@ def solve_taa_monthly_result(
 
         projected = _project_mode_weights_to_feasible_set("taa_monthly", np.asarray(weights.value, dtype=float), universe)
         full_weights = _full_weights(projected, universe)
+        slack_value = float(vol_slack.value) if vol_slack.value is not None else 0.0
+        if slack_value > 1e-10:
+            realized_vol = float(np.sqrt(max(projected @ sigma @ projected, 0.0)))
+            _append_optimizer_breach_row(
+                as_of_date=as_of_date,
+                optimizer_mode="vol",
+                breach_type="vol_constraint_relaxed",
+                budget=vol_budget,
+                realized_value=realized_vol,
+                slack_value=slack_value,
+                output_path=breach_log_path.parent / OPTIMIZER_BREACHES_PATH.name,
+            )
         return _finalize_result(
             full_weights,
             "taa_monthly",
@@ -566,6 +828,8 @@ def solve_portfolio(
     vol_budget: float = TARGET_VOL,
     vol_slack_penalty: float = DEFAULT_VOL_SLACK_PENALTY,
     breach_log_path: Path = BREACH_LOG_PATH,
+    config: EnsembleConfig | None = None,
+    scenario_returns: pd.DataFrame | None = None,
 ) -> OptimizationResult:
     """Dispatch into the annual SAA or monthly TAA optimizer.
 
@@ -612,6 +876,8 @@ def solve_portfolio(
             vol_budget=vol_budget,
             vol_slack_penalty=vol_slack_penalty,
             breach_log_path=breach_log_path,
+            config=config,
+            scenario_returns=scenario_returns,
         )
     raise ValueError(f"Unsupported optimization mode: {mode}")
 
@@ -658,6 +924,8 @@ def solve_taa(
     vol_budget: float = TARGET_VOL,
     vol_slack_penalty: float = DEFAULT_VOL_SLACK_PENALTY,
     breach_log_path: Path = BREACH_LOG_PATH,
+    config: EnsembleConfig | None = None,
+    scenario_returns: pd.DataFrame | None = None,
 ) -> pd.Series:
     """Backward-compatible convenience wrapper returning TAA weights only.
 
@@ -685,6 +953,8 @@ def solve_taa(
         vol_budget=vol_budget,
         vol_slack_penalty=vol_slack_penalty,
         breach_log_path=breach_log_path,
+        config=config,
+        scenario_returns=scenario_returns,
     ).weights
 
 

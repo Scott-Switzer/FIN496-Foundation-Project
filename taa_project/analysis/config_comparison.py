@@ -35,6 +35,13 @@ CANONICAL_RUN_ORDER = [
     "timesfm_vb07",
     "timesfm_regime_vb",
     "timesfm_regime_dd",
+    "cvar95_vb_2_5",
+    "cvar99_vb_4_0",
+    "nested_risk_default",
+    "nested_risk_cvar",
+    "hrp_saa",
+    "bl_stress_full",
+    "kitchen_sink",
 ]
 RETURN_TARGET = 0.08
 
@@ -45,8 +52,27 @@ RUN_LABELS = {
     "timesfm_vb07": "TimesFM VB07",
     "timesfm_regime_vb": "TimesFM Regime VB",
     "timesfm_regime_dd": "TimesFM Regime + DD",
+    "cvar95_vb_2_5": "CVaR 95 2.5%",
+    "cvar99_vb_4_0": "CVaR 99 4.0%",
+    "nested_risk_default": "Nested Risk",
+    "nested_risk_cvar": "Nested Risk + CVaR",
+    "hrp_saa": "HRP SAA",
+    "bl_stress_full": "BL Stress Views",
+    "kitchen_sink": "Kitchen Sink",
 }
 RUN_IDS_BY_LABEL = {label: run_id for run_id, label in RUN_LABELS.items()}
+PORTFOLIO_METRICS_DTYPE = {
+    "portfolio": "string",
+    "annualized_return": "float32",
+    "annualized_volatility": "float32",
+    "max_drawdown": "float32",
+    "sharpe_rf_2pct": "float32",
+    "sortino_rf_2pct": "float32",
+    "calmar": "float32",
+}
+RETURNS_DTYPE = {
+    "portfolio_return": "float32",
+}
 
 
 def _run_label(run_id: str) -> str:
@@ -58,11 +84,19 @@ def _overlay_bucket(run_id: str) -> str:
         return "Benchmark"
     if run_id == "baseline":
         return "No TimesFM"
-    if run_id == "timesfm_regime_dd":
-        return "Regime + DD"
-    if run_id == "timesfm_regime_vb":
-        return "Regime Vol"
-    return "Flat Vol + TimesFM"
+    if run_id in {"timesfm_vb10", "timesfm_vb08", "timesfm_vb07", "timesfm_regime_vb", "timesfm_regime_dd"}:
+        return "Vol-only"
+    if run_id in {"cvar95_vb_2_5", "cvar99_vb_4_0"}:
+        return "CVaR"
+    if run_id in {"nested_risk_default", "nested_risk_cvar"}:
+        return "Nested"
+    if run_id == "hrp_saa":
+        return "HRP"
+    if run_id == "bl_stress_full":
+        return "BL-stress"
+    if run_id == "kitchen_sink":
+        return "Kitchen-sink"
+    return "Other"
 
 
 def _pass_fail(flag: bool) -> str:
@@ -88,7 +122,7 @@ def _benchmark_dsr(run_dir: Path, benchmark: str, n_trials: int) -> float:
     """
 
     returns_name = "bm1_returns.csv" if benchmark == "BM1" else "bm2_returns.csv"
-    returns = pd.read_csv(run_dir / "outputs" / returns_name)["portfolio_return"]
+    returns = pd.read_csv(run_dir / "outputs" / returns_name, dtype=RETURNS_DTYPE)["portfolio_return"]
     return float(deflated_sharpe_ratio(returns, n_trials=n_trials))
 
 
@@ -110,7 +144,7 @@ def _strategy_dsr(run_dir: Path, n_trials: int) -> float:
     - Safe. This is an ex-post evaluation metric computed on realized returns.
     """
 
-    returns = pd.read_csv(run_dir / "outputs" / "oos_returns.csv")["portfolio_return"]
+    returns = pd.read_csv(run_dir / "outputs" / "oos_returns.csv", dtype=RETURNS_DTYPE)["portfolio_return"]
     return float(deflated_sharpe_ratio(returns, n_trials=n_trials))
 
 
@@ -146,7 +180,7 @@ def build_config_comparison(
 
     for run_id in CANONICAL_RUN_ORDER:
         run_dir = run_root / run_id
-        metrics = pd.read_csv(run_dir / "outputs" / PORTFOLIO_METRICS_FILENAME)
+        metrics = pd.read_csv(run_dir / "outputs" / PORTFOLIO_METRICS_FILENAME, dtype=PORTFOLIO_METRICS_DTYPE)
 
         if not benchmark_added:
             for benchmark in ("BM1", "BM2"):
@@ -199,9 +233,13 @@ def build_config_comparison(
     colors = {
         "Benchmark": "#475569",
         "No TimesFM": "#94a3b8",
-        "Flat Vol + TimesFM": "#2563eb",
-        "Regime Vol": "#059669",
-        "Regime + DD": "#dc2626",
+        "Vol-only": "#2563eb",
+        "CVaR": "#dc2626",
+        "Nested": "#059669",
+        "HRP": "#7c3aed",
+        "BL-stress": "#d97706",
+        "Kitchen-sink": "#111827",
+        "Other": "#64748b",
     }
     plt.figure(figsize=(10, 6), dpi=200)
     for _, row in comparison.iterrows():
@@ -292,7 +330,10 @@ def select_submission_configuration(
     ).iloc[0]
     run_label = str(chosen["Run"])
     run_id = RUN_IDS_BY_LABEL[run_label]
-    run_metrics = pd.read_csv(run_root / run_id / "outputs" / PORTFOLIO_METRICS_FILENAME).set_index("portfolio")
+    run_metrics = pd.read_csv(
+        run_root / run_id / "outputs" / PORTFOLIO_METRICS_FILENAME,
+        dtype=PORTFOLIO_METRICS_DTYPE,
+    ).set_index("portfolio")
     saa_dd = float(run_metrics.loc["SAA", "max_drawdown"])
     target_dd = -MAX_DD
     chosen_dd = float(chosen["Max DD"])

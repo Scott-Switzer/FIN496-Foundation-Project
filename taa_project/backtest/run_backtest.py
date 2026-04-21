@@ -8,7 +8,18 @@ At each month-end t:
   4. Log: weights, realized return, regime label, attribution vs BM2
 """
 from __future__ import annotations
+
+import os
 from pathlib import Path
+
+os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+os.environ.setdefault("MKL_NUM_THREADS", "1")
+
+try:
+    import torch as _torch  # noqa: F401  # Pin the OpenMP runtime before sklearn / hmmlearn imports.
+except ImportError:
+    _torch = None
 
 import pandas as pd
 import numpy as np
@@ -110,7 +121,7 @@ def run(
         # 3) TimesFM signals (optional)
         if forecaster is not None:
             from taa_project.signals.vol_timesfm import compute_vol_and_direction_signals
-            tfm = compute_vol_and_direction_signals(rets, t, forecaster, horizon=21)
+            tfm = compute_vol_and_direction_signals(prices.loc[:, ALL_SAA], t, forecaster=forecaster, horizon=64)
             timesfm_mu = tfm["mu_ann"].reindex(ALL_SAA).fillna(0.0)
             fcst_sigma = tfm["sigma_ann_fcst"].reindex(ALL_SAA)
         else:

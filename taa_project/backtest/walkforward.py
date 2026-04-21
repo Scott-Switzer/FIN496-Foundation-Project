@@ -43,6 +43,7 @@ from taa_project.optimizer.cvxpy_opt import (
 from taa_project.optimizer.nested_risk import solve_nested_taa
 from taa_project.signals import SignalBundle
 from taa_project.signals.dd_guardrail import dd_guardrail_multiplier, trailing_drawdown_series
+from taa_project.signals.macro_factor import compute_macro_factor_mu
 from taa_project.signals.momentum_adm import adm_score, cross_sectional_rank
 from taa_project.signals.regime_hmm import (
     MIN_TRAIN_OBSERVATIONS,
@@ -534,9 +535,15 @@ def run_walkforward(
     trend_signals = trend_score(prices.loc[:, ALL_SAA])
     momo_signals = cross_sectional_rank(adm_score(prices.loc[:, ALL_SAA]), SLEEVE_BUCKETS)
     fred_features = build_features(fred)
+    # Use the base 4-feature set (VIXCLS, BAMLH0A0HYM2, T10Y3M, NFCI — available from 2001)
+    # to anchor train_start.  Extended features like DFII10 only start 2003-01-02, so
+    # fred_features.index.min() would be 2003 and leave the smoke-test window with no
+    # training history.  The HMM fold logic uses fred_features directly, so it naturally
+    # trains on whichever rows are available after the fold's train_start.
+    _base_features = build_features(fred, use_extended=False)
+    train_start = max(pd.Timestamp("2001-01-01"), _base_features.index.min())
 
     decision_dates = build_monthly_decision_dates(prices.loc[:, ALL_SAA], start, end)
-    train_start = max(pd.Timestamp("2001-01-01"), fred_features.index.min())
     fold_specs = build_walkforward_folds(decision_dates, train_start=train_start, folds=folds, embargo_business_days=embargo_business_days)
     folds_df = fold_specs_to_frame(fold_specs)
 
@@ -594,12 +601,25 @@ def run_walkforward(
         )
 
         regime_tilt = regime_tilt_from_label(signal_bundle.regime_label).reindex(ALL_SAA).fillna(0.0)
-        signal_score = (
-            config.regime_weight * regime_tilt * config.regime_scale
-            + config.trend_weight * signal_bundle.trend * config.trend_scale
-            + config.momo_weight * signal_bundle.momo * config.momo_scale
-            + config.timesfm_weight * signal_bundle.timesfm_mu
-        ).reindex(ALL_SAA).fillna(0.0)
+
+        # Macro factor signal: real-yield tilt, credit-premium tilt, crypto momentum.
+        # Computed from the full lagged FRED panel and the price history up to
+        # the current decision date — both are PIT-safe.
+        macro_mu = compute_macro_factor_mu(
+            fred=fred_features,
+            prices=prices.loc[:, ALL_SAA],
+            as_of_date=pd.Timestamp(decision_date),
+        )
+
+        from taa_project.optimizer.cvxpy_opt import ensemble_score as _ensemble_score
+        signal_score = _ensemble_score(
+            regime_tilt=regime_tilt,
+            trend_sig=signal_bundle.trend,
+            momo_sig=signal_bundle.momo,
+            timesfm_mu=signal_bundle.timesfm_mu,
+            macro_factor_mu=macro_mu,
+            config=config,
+        )
 
         covariance = estimate_taa_covariance(
             returns.loc[:, ALL_SAA],

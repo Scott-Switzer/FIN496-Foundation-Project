@@ -37,7 +37,16 @@ except ImportError:  # pragma: no cover - exercised only when hmmlearn is absent
     GaussianHMM = None
 
 
+# Original four coincident / financial-stress features.
 MACRO_FEATURES = ["VIXCLS", "BAMLH0A0HYM2", "T10Y3M", "NFCI"]
+
+# Extended set: adds the 10-year TIPS real yield (DFII10).  This series has a
+# -0.80 monthly correlation with BROAD_TIPS returns and a -0.46 correlation
+# with XAU returns, giving the HMM a real-rate dimension that is entirely
+# absent from the original four features.
+# Available from 2003-01-02, matching the full backtest window.
+# Citation: Erb & Harvey (2013). https://doi.org/10.2469/faj.v69.n4.1
+MACRO_FEATURES_EXTENDED = ["VIXCLS", "BAMLH0A0HYM2", "T10Y3M", "NFCI", "DFII10"]
 DEFAULT_HMM_STATES = 3
 MIN_TRAIN_OBSERVATIONS = 252
 HMM_RANDOM_SEED = 42
@@ -74,29 +83,44 @@ class FittedRegimeModel:
     state_names: dict[int, str]
 
 
-def build_features(fred: pd.DataFrame) -> pd.DataFrame:
-    """Select the required HMM macro features from the lagged FRED panel.
+def build_features(
+    fred: pd.DataFrame,
+    use_extended: bool = True,
+) -> pd.DataFrame:
+    """Select HMM macro features from the lagged FRED panel.
 
     Inputs:
     - `fred`: one-business-day-lagged macro dataframe from Task 1.
+    - `use_extended`: if True (default), attempt to include DFII10 as a fifth
+      feature.  Falls back to the original four if DFII10 is absent or has
+      insufficient history.
 
     Outputs:
-    - Clean feature dataframe containing exactly the required four macro series.
+    - Clean feature dataframe containing four or five macro series.
 
     Citation:
     - Whitmore project file `data/consolidated_csvs/fred/master/fred_data.csv`.
     - Hamilton (1989): https://doi.org/10.2307/1912559
+    - Erb & Harvey (2013) on DFII10: https://doi.org/10.2469/faj.v69.n4.1
 
     Point-in-time safety:
     - Safe. The input is already lagged in Task 1, and this function only
       subsets and drops currently missing observations.
     """
+    # Determine which features to use
+    candidate = MACRO_FEATURES_EXTENDED if use_extended else MACRO_FEATURES
+    # Drop extended columns absent from the panel
+    available = [c for c in candidate if c in fred.columns]
+    # Fall back to base set if extended feature has insufficient history
+    if use_extended and "DFII10" in available:
+        if fred["DFII10"].dropna().__len__() < MIN_TRAIN_OBSERVATIONS:
+            available = list(MACRO_FEATURES)
 
-    missing = [column for column in MACRO_FEATURES if column not in fred.columns]
+    missing = [c for c in MACRO_FEATURES if c not in available]
     if missing:
         raise KeyError(f"Missing required FRED regime features: {missing}")
 
-    features = fred.loc[:, MACRO_FEATURES].copy()
+    features = fred.loc[:, available].copy()
     features = features.replace([np.inf, -np.inf], np.nan).dropna()
     return features.sort_index()
 
@@ -123,19 +147,27 @@ def zscore_features(
     - Safe when `mean` and `std` come from the training sample only.
     """
 
-    ordered = features.loc[:, MACRO_FEATURES].astype(float)
-    feature_mean = ordered.mean() if mean is None else mean.reindex(MACRO_FEATURES)
-    feature_std = ordered.std(ddof=0) if std is None else std.reindex(MACRO_FEATURES)
+    # Use whatever columns the input dataframe actually contains (supports
+    # both the original four-feature set and the extended five-feature set).
+    active_cols = list(features.columns)
+    ordered = features.loc[:, active_cols].astype(float)
+    feature_mean = ordered.mean() if mean is None else mean.reindex(active_cols)
+    feature_std = ordered.std(ddof=0) if std is None else std.reindex(active_cols)
     feature_std = feature_std.replace(0.0, np.nan).fillna(1.0)
     scaled = (ordered - feature_mean) / feature_std
     return scaled, feature_mean, feature_std
 
 
-def _state_stress_scores(model: GaussianHMM) -> dict[int, float]:
+def _state_stress_scores(
+    model: GaussianHMM,
+    feature_columns: tuple[str, ...] | None = None,
+) -> dict[int, float]:
     """Score each hidden state from benign to stressed using macro loadings.
 
     Inputs:
     - `model`: fitted Gaussian HMM in z-scored feature space.
+    - `feature_columns`: ordered feature names used during fitting.  If None,
+      falls back to the original MACRO_FEATURES list.
 
     Outputs:
     - Mapping from state index to scalar stress score.
@@ -148,25 +180,33 @@ def _state_stress_scores(model: GaussianHMM) -> dict[int, float]:
     Point-in-time safety:
     - Safe. The score uses only fitted-state means from the training window.
     """
-
-    feature_positions = {feature: index for index, feature in enumerate(MACRO_FEATURES)}
+    cols = list(feature_columns) if feature_columns is not None else list(MACRO_FEATURES)
+    feature_positions = {feature: index for index, feature in enumerate(cols)}
     scores: dict[int, float] = {}
     for state in range(model.n_components):
         means = model.means_[state]
-        scores[state] = float(
-            means[feature_positions["VIXCLS"]]
-            + means[feature_positions["BAMLH0A0HYM2"]]
-            + means[feature_positions["NFCI"]]
-            - means[feature_positions["T10Y3M"]]
-        )
+        score = 0.0
+        # Stress contributors (higher → more stressed)
+        for stress_col in ["VIXCLS", "BAMLH0A0HYM2", "NFCI", "DFII10"]:
+            if stress_col in feature_positions:
+                score += float(means[feature_positions[stress_col]])
+        # Stress detractors (higher value = less stressed)
+        for calm_col in ["T10Y3M"]:
+            if calm_col in feature_positions:
+                score -= float(means[feature_positions[calm_col]])
+        scores[state] = score
     return scores
 
 
-def _interpret_state_names(model: GaussianHMM) -> dict[int, str]:
+def _interpret_state_names(
+    model: GaussianHMM,
+    feature_columns: tuple[str, ...] | None = None,
+) -> dict[int, str]:
     """Map raw state ids to economic labels ordered by stress severity.
 
     Inputs:
     - `model`: fitted Gaussian HMM in z-scored feature space.
+    - `feature_columns`: ordered feature names used during fitting.
 
     Outputs:
     - State-name mapping such as `{0: "risk_on", 1: "neutral", 2: "stress"}`.
@@ -180,7 +220,7 @@ def _interpret_state_names(model: GaussianHMM) -> dict[int, str]:
     - Safe. Interpretation is based only on fitted-state macro averages.
     """
 
-    stress_scores = _state_stress_scores(model)
+    stress_scores = _state_stress_scores(model, feature_columns)
     ranked_states = sorted(stress_scores, key=stress_scores.get)
     if len(ranked_states) == 3:
         names = ["risk_on", "neutral", "stress"]
@@ -221,7 +261,7 @@ def fit_hmm(
     if GaussianHMM is None:
         raise ImportError("hmmlearn is required for the regime HMM. Install the project requirements first.")
 
-    clean_features = build_features(features)
+    clean_features = build_features(features)  # uses extended set by default
     if len(clean_features) < min_observations:
         raise ValueError(
             f"Need at least {min_observations} feature rows to fit the HMM; received {len(clean_features)}."
@@ -235,10 +275,11 @@ def fit_hmm(
         random_state=seed,
     )
     model.fit(scaled.to_numpy(dtype=float))
-    state_names = _interpret_state_names(model)
+    fitted_cols = tuple(clean_features.columns)
+    state_names = _interpret_state_names(model, feature_columns=fitted_cols)
     return FittedRegimeModel(
         model=model,
-        feature_columns=tuple(MACRO_FEATURES),
+        feature_columns=fitted_cols,
         feature_mean=feature_mean,
         feature_std=feature_std,
         state_names=state_names,
@@ -265,7 +306,12 @@ def classify_states(model: FittedRegimeModel, features: pd.DataFrame) -> pd.Data
       function applies the train-time scaler stored on `model`.
     """
 
-    clean_features = build_features(features)
+    # Subset inference data to only the columns the model was fitted on.
+    # This ensures compatibility whether the model used 4 or 5 features.
+    avail_cols = [c for c in model.feature_columns if c in features.columns]
+    clean_features = build_features(features.loc[:, avail_cols] if avail_cols else features)
+    # Re-align to the exact fitted column order.
+    clean_features = clean_features.reindex(columns=list(model.feature_columns)).dropna()
     scaled, _, _ = zscore_features(clean_features, model.feature_mean, model.feature_std)
     probabilities = model.model.predict_proba(scaled.to_numpy(dtype=float))
     state_indices = probabilities.argmax(axis=1)

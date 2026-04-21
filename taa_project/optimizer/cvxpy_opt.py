@@ -103,10 +103,18 @@ class EnsembleConfig:
     - Safe. This is static configuration only.
     """
 
-    regime_weight: float = 0.40
+    # Signal-ensemble weights must sum to 1.0 for a stable expected-return
+    # scale.  Default allocation:
+    #   regime(0.30) + trend(0.20) + momo(0.20) + timesfm(0.10) + macro(0.20)
+    # The macro_factor weight was freed from timesfm (reduced 0.20 → 0.10)
+    # because the macro_factor signal is always available (no optional
+    # dependency) and provides asset-specific factor signals that are
+    # absent from the regime HMM and trend/momentum layers.
+    regime_weight: float = 0.30
     trend_weight: float = 0.20
     momo_weight: float = 0.20
-    timesfm_weight: float = 0.20
+    timesfm_weight: float = 0.10
+    macro_factor_weight: float = 0.20
     regime_scale: float = 0.10
     trend_scale: float = 0.06
     momo_scale: float = 0.06
@@ -963,15 +971,19 @@ def ensemble_score(
     trend_sig: pd.Series,
     momo_sig: pd.Series,
     timesfm_mu: pd.Series,
+    macro_factor_mu: pd.Series | None = None,
     config: EnsembleConfig | None = None,
 ) -> pd.Series:
-    """Blend the four signal layers into an annualized `mu` proxy.
+    """Blend the five signal layers into an annualized `mu` proxy.
 
     Inputs:
     - `regime_tilt`: regime-layer tilt vector.
     - `trend_sig`: smooth Faber trend score in `[-1, +1]`.
     - `momo_sig`: ADM momentum score in `[-1, +1]`.
     - `timesfm_mu`: TimesFM annualized expected-return forecast.
+    - `macro_factor_mu`: asset-specific macro factor signal (real yield,
+      credit premium, crypto momentum) from ``macro_factor.py``.  If None
+      or missing, the macro_factor_weight is redistributed to regime.
     - `config`: optional signal-ensemble config for ablation studies.
 
     Outputs:
@@ -979,6 +991,7 @@ def ensemble_score(
 
     Citation:
     - Whitmore Task 5 optimizer specification.
+    - Macro factor signals: Erb & Harvey (2013), Gilchrist & Zakrajsek (2012).
 
     Point-in-time safety:
     - Safe. This is an algebraic combination of already point-in-time-safe
@@ -986,10 +999,18 @@ def ensemble_score(
     """
 
     cfg = EnsembleConfig() if config is None else config
+    macro_mu = (
+        macro_factor_mu.reindex(ALL_SAA).fillna(0.0)
+        if macro_factor_mu is not None
+        else pd.Series(0.0, index=ALL_SAA, dtype=float)
+    )
+    # When macro signal is unavailable, its weight folds into the regime layer.
+    regime_w = cfg.regime_weight + (cfg.macro_factor_weight if macro_factor_mu is None else 0.0)
     score = (
-        cfg.regime_weight * regime_tilt * cfg.regime_scale
+        regime_w * regime_tilt * cfg.regime_scale
         + cfg.trend_weight * trend_sig * cfg.trend_scale
         + cfg.momo_weight * momo_sig * cfg.momo_scale
         + cfg.timesfm_weight * timesfm_mu
+        + cfg.macro_factor_weight * macro_mu
     )
     return score.reindex(ALL_SAA).fillna(0.0)

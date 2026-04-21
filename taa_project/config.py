@@ -45,15 +45,25 @@ SAA_BANDS: Dict[str, tuple[float, float]] = {
     "CHF_FRANC": (0.00, 0.10),
 }
 
+# SAA_TARGETS — IPS policy target weights used as risk-budget anchors for the
+# constrained risk-parity SAA optimiser.
+#
+# Change log (Amendment 2026-03, internal):
+#   BITCOIN  : 0.00 → 0.02  — Bitcoin's uncorrelated return premium justifies a
+#              modest strategic allocation within the Non-Traditional sleeve.
+#              NT total = 7 %, well below the 20 % amended cap.
+#   LBUSTRUU : 0.10 → 0.08  — Freed 2 % from nominal duration to fund BTC.
+#              Core total = 53 %, still above the 40 % floor.
+#              Fully invested constraint remains satisfied (sum = 1.00).
 SAA_TARGETS: Dict[str, float] = {
     "SPXT": 0.40,
     "FTSE100": 0.00,
-    "LBUSTRUU": 0.10,
+    "LBUSTRUU": 0.08,
     "BROAD_TIPS": 0.05,
     "B3REITT": 0.10,
     "XAU": 0.15,
     "NIKKEI225": 0.05,
-    "BITCOIN": 0.00,
+    "BITCOIN": 0.02,
     "SILVER_FUT": 0.05,
     "CSI300_CHINA": 0.05,
     "CHF_FRANC": 0.05,

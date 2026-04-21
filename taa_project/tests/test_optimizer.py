@@ -22,16 +22,24 @@ def _identity_covariance(scale: float = 0.04) -> pd.DataFrame:
 
 
 def test_ensemble_score_respects_custom_config() -> None:
-    config = EnsembleConfig(regime_weight=0.5, trend_weight=0.25, momo_weight=0.25, timesfm_weight=0.0)
+    # Pass macro_factor_weight=0.0 so the test is independent of macro data.
+    config = EnsembleConfig(
+        regime_weight=0.5,
+        trend_weight=0.25,
+        momo_weight=0.25,
+        timesfm_weight=0.0,
+        macro_factor_weight=0.0,
+    )
     regime = pd.Series(1.0, index=ALL_SAA)
     trend = pd.Series(0.5, index=ALL_SAA)
     momo = pd.Series(-0.5, index=ALL_SAA)
     timesfm = pd.Series(0.02, index=ALL_SAA)
 
-    score = ensemble_score(regime, trend, momo, timesfm, config=config)
+    # No macro_factor_mu supplied → macro_factor_weight (0.0) folds into regime.
+    score = ensemble_score(regime, trend, momo, timesfm, macro_factor_mu=None, config=config)
 
     expected = 0.5 * 0.10 + 0.25 * 0.5 * 0.06 + 0.25 * -0.5 * 0.06
-    assert np.isclose(score["SPXT"], expected)
+    assert np.isclose(score["SPXT"], expected), f"Got {score['SPXT']}, expected {expected}"
     assert score.index.tolist() == ALL_SAA
 
 

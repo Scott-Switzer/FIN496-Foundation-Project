@@ -43,6 +43,7 @@ from taa_project.optimizer.cvxpy_opt import (
 from taa_project.optimizer.nested_risk import solve_nested_taa
 from taa_project.signals import SignalBundle
 from taa_project.signals.dd_guardrail import dd_guardrail_multiplier, trailing_drawdown_series
+from taa_project.signals.macro_factor import compute_macro_factor_mu
 from taa_project.signals.momentum_adm import adm_score, cross_sectional_rank
 from taa_project.signals.regime_hmm import (
     MIN_TRAIN_OBSERVATIONS,
@@ -594,12 +595,25 @@ def run_walkforward(
         )
 
         regime_tilt = regime_tilt_from_label(signal_bundle.regime_label).reindex(ALL_SAA).fillna(0.0)
-        signal_score = (
-            config.regime_weight * regime_tilt * config.regime_scale
-            + config.trend_weight * signal_bundle.trend * config.trend_scale
-            + config.momo_weight * signal_bundle.momo * config.momo_scale
-            + config.timesfm_weight * signal_bundle.timesfm_mu
-        ).reindex(ALL_SAA).fillna(0.0)
+
+        # Macro factor signal: real-yield tilt, credit-premium tilt, crypto momentum.
+        # Computed from the full lagged FRED panel and the price history up to
+        # the current decision date — both are PIT-safe.
+        macro_mu = compute_macro_factor_mu(
+            fred=fred_features,
+            prices=prices.loc[:, ALL_SAA],
+            as_of_date=pd.Timestamp(decision_date),
+        )
+
+        from taa_project.optimizer.cvxpy_opt import ensemble_score as _ensemble_score
+        signal_score = _ensemble_score(
+            regime_tilt=regime_tilt,
+            trend_sig=signal_bundle.trend,
+            momo_sig=signal_bundle.momo,
+            timesfm_mu=signal_bundle.timesfm_mu,
+            macro_factor_mu=macro_mu,
+            config=config,
+        )
 
         covariance = estimate_taa_covariance(
             returns.loc[:, ALL_SAA],

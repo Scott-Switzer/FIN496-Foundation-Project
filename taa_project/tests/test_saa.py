@@ -31,6 +31,9 @@ def test_zero_target_assets_receive_zero_risk_budget() -> None:
     budgets = target_risk_budgets(["SPXT", "FTSE100", "BITCOIN", "XAU"])
 
     assert np.isclose(budgets.sum(), 1.0)
+    # FTSE100 still has a 0% SAA target — should have zero risk budget.
     assert budgets["FTSE100"] == 0.0
-    assert budgets["BITCOIN"] == 0.0
+    # BITCOIN now has a 2% SAA target (Amendment 2026-03), so its risk
+    # budget should be positive.
+    assert budgets["BITCOIN"] > 0.0
     assert budgets["SPXT"] > 0.0

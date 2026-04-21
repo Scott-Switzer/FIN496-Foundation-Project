@@ -129,7 +129,7 @@ FIGURE_FILENAMES = {
     "attribution": "fig07_attribution_bar.png",
 }
 
-SAA_METHODS = (
+LEGACY_SAA_METHODS = (
     "inverse_vol",
     "minimum_variance",
     "risk_parity",
@@ -356,6 +356,10 @@ def _candidate_saa_weights(
                 assets=assets,
             )
         )
+    if method == "hrp":
+        from taa_project.saa.saa_comparison import solve_hierarchical_risk_parity
+
+        return solve_hierarchical_risk_parity(assets, covariance).reindex(assets).fillna(0.0)
     if method == "maximum_diversification":
         return _maximum_diversification_weights(covariance, assets)
     if method == "mean_variance":
@@ -367,6 +371,7 @@ def build_saa_method_comparison(
     start_date: str = SAA_DEFAULT_START,
     end_date: str = SAA_DEFAULT_END,
     output_dir: Path = OUTPUT_DIR,
+    include_hrp: bool = False,
 ) -> tuple[pd.DataFrame, dict[str, pd.DataFrame]]:
     """Compare the five permitted SAA methods under the Whitmore IPS.
 
@@ -374,6 +379,7 @@ def build_saa_method_comparison(
     - `start_date`: earliest allowed SAA start date.
     - `end_date`: last date to include.
     - `output_dir`: destination directory for the comparison CSV.
+    - `include_hrp`: whether to include the opt-in HRP method.
 
     Outputs:
     - Tuple `(comparison_df, returns_by_method)` where `comparison_df`
@@ -396,7 +402,8 @@ def build_saa_method_comparison(
     method_returns: dict[str, pd.DataFrame] = {}
     rows: list[dict[str, object]] = []
 
-    for method in SAA_METHODS:
+    methods = LEGACY_SAA_METHODS + (("hrp",) if include_hrp else ())
+    for method in methods:
         rebalance_targets: dict[pd.Timestamp, pd.Series] = {}
         for rebalance_date in schedule:
             eligible_assets = available_assets_on(rebalance_date, inception_dates)
@@ -1254,6 +1261,7 @@ def build_reporting(
     folds: int = 5,
     use_timesfm: bool = False,
     vol_budget: float = TARGET_VOL,
+    saa_method: str = "risk_parity",
     ensemble_config: EnsembleConfig | None = None,
     output_dir: Path = OUTPUT_DIR,
     figure_dir: Path = FIGURES_DIR,
@@ -1266,6 +1274,7 @@ def build_reporting(
     - `use_timesfm`: whether the baseline run used TimesFM.
     - `vol_budget`: internal ex-ante annualized volatility target reused by
       attribution reruns when needed.
+    - `saa_method`: strategic asset allocation method used for the run.
     - `ensemble_config`: optional baseline ensemble configuration reused by
       attribution reruns when needed.
     - `output_dir`: destination directory for CSV artifacts.
@@ -1299,7 +1308,10 @@ def build_reporting(
         output_dir=output_dir,
     )
     panels = _build_strategy_panels(outputs, output_dir=output_dir)
-    saa_method_comparison, _ = build_saa_method_comparison(output_dir=output_dir)
+    saa_method_comparison, _ = build_saa_method_comparison(
+        output_dir=output_dir,
+        include_hrp=saa_method == "hrp",
+    )
     if TRIAL_LEDGER_CSV.exists():
         existing_trial_ledger = pd.read_csv(TRIAL_LEDGER_CSV)
     else:

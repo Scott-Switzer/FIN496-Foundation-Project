@@ -16,7 +16,8 @@ def test_run_pipeline_orchestrates_with_stubbed_dependencies(monkeypatch, tmp_pa
     def fake_run_data_audit(output_dir):
         return {"output_dir": output_dir}
 
-    def fake_build_saa_portfolio(start_date, end_date, output_dir):
+    def fake_build_saa_portfolio(start_date, end_date, output_dir, method="risk_parity"):
+        captured["saa_method"] = method
         return None
 
     def fake_build_benchmarks(start_date, end_date, output_dir):
@@ -34,10 +35,11 @@ def test_run_pipeline_orchestrates_with_stubbed_dependencies(monkeypatch, tmp_pa
         captured["attribution_dd_guardrail"] = False if ensemble_config is None else ensemble_config.use_dd_guardrail
         return {"per_signal": pd.DataFrame()}
 
-    def fake_build_reporting(start, end, folds, use_timesfm, vol_budget, output_dir, figure_dir, ensemble_config=None):
+    def fake_build_reporting(start, end, folds, use_timesfm, vol_budget, output_dir, figure_dir, saa_method="risk_parity", ensemble_config=None):
         captured["reporting_vol_budget"] = vol_budget
         captured["reporting_regime_vol_budgets"] = None if ensemble_config is None else ensemble_config.vol_budget_by_regime
         captured["reporting_dd_guardrail"] = False if ensemble_config is None else ensemble_config.use_dd_guardrail
+        captured["reporting_saa_method"] = saa_method
         return {
             "ips_compliance": pd.DataFrame(columns=["portfolio", "date", "rule", "value", "bound"]),
             "metrics": pd.DataFrame(
@@ -110,6 +112,8 @@ def test_run_pipeline_orchestrates_with_stubbed_dependencies(monkeypatch, tmp_pa
     assert captured["walkforward_dd_guardrail"] is True
     assert captured["attribution_dd_guardrail"] is True
     assert captured["reporting_dd_guardrail"] is True
+    assert captured["saa_method"] == "risk_parity"
+    assert captured["reporting_saa_method"] == "risk_parity"
 
 
 def test_run_pipeline_raises_when_timesfm_requested_but_unavailable(monkeypatch, tmp_path) -> None:

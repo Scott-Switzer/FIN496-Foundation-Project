@@ -56,6 +56,7 @@ from taa_project.config import (
 from taa_project.data_audit import run_data_audit
 from taa_project.notebooks.build_diagnostics import build_diagnostics_notebook
 from taa_project.optimizer.cvxpy_opt import EnsembleConfig
+from taa_project.optimizer.nested_risk import NestedRiskConfig
 from taa_project.report.build_deck import build_deck
 from taa_project.report.build_report import build_report
 from taa_project.saa.build_saa import build_saa_portfolio
@@ -248,6 +249,35 @@ def _parse_regime_vol_budgets(raw_json: str | None) -> dict[str, float] | None:
     return budgets
 
 
+def _parse_nested_sleeve_weights(raw_weights: str | tuple[float, float, float]) -> tuple[float, float, float]:
+    """Parse the comma-separated nested sleeve weights flag.
+
+    Inputs:
+    - `raw_weights`: either an already-parsed tuple or a string such as
+      `"0.55,0.35,0.10"`.
+
+    Outputs:
+    - Three-tuple `(core, satellite, nontraditional)` summing to 1.0.
+
+    Citation:
+    - Whitmore nested-risk CLI specification.
+
+    Point-in-time safety:
+    - Safe. This is runtime configuration parsing only.
+    """
+
+    if isinstance(raw_weights, tuple):
+        weights = tuple(float(value) for value in raw_weights)
+    else:
+        parts = [part.strip() for part in raw_weights.split(",") if part.strip()]
+        if len(parts) != 3:
+            raise ValueError("--nested-sleeve-weights must contain exactly three comma-separated values.")
+        weights = tuple(float(part) for part in parts)
+    if not np.isclose(sum(weights), 1.0, atol=1e-8):
+        raise ValueError("--nested-sleeve-weights must sum to 1.0.")
+    return weights
+
+
 def seed_everything(seed: int = DEFAULT_RANDOM_SEED, seed_torch: bool = False) -> None:
     """Seed Python, NumPy, and Torch RNGs for deterministic runs.
 
@@ -304,6 +334,18 @@ def run_pipeline(
     folds: int = 5,
     use_timesfm: bool = False,
     vol_budget: float = TARGET_VOL,
+    optimizer_mode: str = "vol",
+    cvar_alpha: float = 0.95,
+    cvar_budget: float = 0.025,
+    cvar_lookback: int = 504,
+    use_nested_risk: bool = False,
+    nested_core_vol: float = 0.06,
+    nested_sat_vol: float = 0.10,
+    nested_nt_vol: float = 0.15,
+    nested_sleeve_weights: tuple[float, float, float] = (0.55, 0.35, 0.10),
+    saa_method: str = "risk_parity",
+    use_bl_stress_views: bool = False,
+    bl_stress_shock: float = 1.0,
     regime_vol_budgets: dict[str, float] | None = None,
     use_dd_guardrail: bool = False,
     output_dir: Path = OUTPUT_DIR,
@@ -317,6 +359,19 @@ def run_pipeline(
     - `start`, `end`, `folds`: walk-forward settings.
     - `use_timesfm`: whether to enable the optional TimesFM signal layer.
     - `vol_budget`: internal ex-ante vol target passed into the TAA optimizer.
+    - `optimizer_mode`: monthly optimizer constraint family.
+    - `cvar_alpha`, `cvar_budget`, `cvar_lookback`: CVaR controls used when
+      `optimizer_mode == "cvar"`.
+    - `use_nested_risk`: whether to solve sleeves independently before
+      blending them back at strategic weights.
+    - `nested_core_vol`, `nested_sat_vol`, `nested_nt_vol`: annualized
+      per-sleeve risk targets used by nested risk budgeting.
+    - `nested_sleeve_weights`: target blend across Core, Satellite, and
+      Non-Traditional sleeves.
+    - `saa_method`: strategic asset allocation method for the annual SAA book.
+    - `use_bl_stress_views`: whether to blend in regime-conditional BL priors.
+    - `bl_stress_shock`: annualized sigma shock subtracted from equities in
+      stress regimes when BL stress views are enabled.
     - `regime_vol_budgets`: optional regime-specific vol targets that override
       the flat monthly budget by inferred HMM state.
     - `use_dd_guardrail`: whether to enable the drawdown-clip overlay.
@@ -345,7 +400,33 @@ def run_pipeline(
     if regime_vol_budgets is not None:
         for regime_label, regime_budget in regime_vol_budgets.items():
             regime_vol_budgets[regime_label] = _validate_vol_budget(regime_budget)
-    ensemble_config = EnsembleConfig(vol_budget_by_regime=regime_vol_budgets, use_dd_guardrail=use_dd_guardrail)
+    nested_risk_config = None
+    if use_nested_risk:
+        nested_risk_config = NestedRiskConfig(
+            core_vol_target=nested_core_vol,
+            satellite_vol_target=nested_sat_vol,
+            nontraditional_vol_target=nested_nt_vol,
+            sleeve_weights=nested_sleeve_weights,
+            use_cvar_per_sleeve=(optimizer_mode == "cvar"),
+            cvar_alpha=cvar_alpha,
+            cvar_budget_by_sleeve=(
+                (cvar_budget, cvar_budget, cvar_budget)
+                if optimizer_mode == "cvar"
+                else NestedRiskConfig().cvar_budget_by_sleeve
+            ),
+        )
+    ensemble_config = EnsembleConfig(
+        vol_budget_by_regime=regime_vol_budgets,
+        use_dd_guardrail=use_dd_guardrail,
+        optimizer_mode=optimizer_mode,
+        cvar_alpha=cvar_alpha,
+        cvar_budget=cvar_budget,
+        cvar_lookback_days=cvar_lookback,
+        use_nested_risk=use_nested_risk,
+        nested_risk_config=nested_risk_config,
+        use_bl_stress_views=use_bl_stress_views,
+        bl_stress_shock=bl_stress_shock,
+    )
 
     seed_everything(DEFAULT_RANDOM_SEED, seed_torch=use_timesfm)
     MPLCONFIG_DIR.mkdir(parents=True, exist_ok=True)
@@ -362,7 +443,7 @@ def run_pipeline(
     audit_artifacts = run_data_audit(output_dir=output_dir)
 
     log_step("Task 2: SAA portfolio")
-    build_saa_portfolio(start_date=history_start, end_date=end, output_dir=output_dir)
+    build_saa_portfolio(start_date=history_start, end_date=end, output_dir=output_dir, method=saa_method)
 
     log_step("Task 3: benchmarks")
     build_benchmarks(start_date=history_start, end_date=end, output_dir=output_dir)
@@ -396,6 +477,7 @@ def run_pipeline(
         folds=folds,
         use_timesfm=use_timesfm,
         vol_budget=vol_budget,
+        saa_method=saa_method,
         ensemble_config=ensemble_config,
         output_dir=output_dir,
         figure_dir=figure_dir,
@@ -490,6 +572,67 @@ def main() -> None:
         help="Internal ex-ante vol target used by the TAA optimizer (default 0.10 = IPS internal target).",
     )
     parser.add_argument(
+        "--optimizer-mode",
+        dest="optimizer_mode",
+        choices=["vol", "cvar"],
+        default="vol",
+        help="TAA optimizer constraint family. 'vol' uses the existing ex-ante volatility ceiling; 'cvar' uses Rockafellar-Uryasev CVaR.",
+    )
+    parser.add_argument(
+        "--cvar-alpha",
+        dest="cvar_alpha",
+        type=float,
+        default=0.95,
+        help="CVaR confidence level (0.95 or 0.99 typical). Only used when --optimizer-mode=cvar.",
+    )
+    parser.add_argument(
+        "--cvar-budget",
+        dest="cvar_budget",
+        type=float,
+        default=0.025,
+        help="Daily CVaR budget as fraction (e.g., 0.025 = 2.5%). Only used when --optimizer-mode=cvar.",
+    )
+    parser.add_argument(
+        "--cvar-lookback",
+        dest="cvar_lookback",
+        type=int,
+        default=504,
+        help="Trailing daily scenario window used by CVaR mode. Hard-capped at 504 for memory discipline.",
+    )
+    parser.add_argument(
+        "--nested-risk",
+        dest="use_nested_risk",
+        action="store_true",
+        help="Solve sleeves independently at sleeve-specific risk targets, then blend at IPS policy weights.",
+    )
+    parser.add_argument("--no-nested-risk", dest="use_nested_risk", action="store_false")
+    parser.set_defaults(use_nested_risk=False)
+    parser.add_argument("--nested-core-vol", type=float, default=0.06)
+    parser.add_argument("--nested-sat-vol", type=float, default=0.10)
+    parser.add_argument("--nested-nt-vol", type=float, default=0.15)
+    parser.add_argument(
+        "--nested-sleeve-weights",
+        type=str,
+        default="0.55,0.35,0.10",
+        help="Comma-separated Core,Satellite,NT weights. Must sum to 1.0.",
+    )
+    parser.add_argument(
+        "--saa-method",
+        dest="saa_method",
+        choices=["risk_parity", "hrp"],
+        default="risk_parity",
+        help="Strategic asset allocation method. Default is target-aware risk parity.",
+    )
+    parser.add_argument("--bl-stress-views", dest="use_bl_stress_views", action="store_true")
+    parser.add_argument("--no-bl-stress-views", dest="use_bl_stress_views", action="store_false")
+    parser.set_defaults(use_bl_stress_views=False)
+    parser.add_argument(
+        "--bl-stress-shock",
+        type=float,
+        default=1.0,
+        help="Sigmas to subtract from equity-asset expected returns when HMM regime == stress.",
+    )
+    parser.add_argument(
         "--regime-vol-budgets",
         dest="regime_vol_budgets",
         default=None,
@@ -511,6 +654,18 @@ def main() -> None:
         folds=args.folds,
         use_timesfm=args.use_timesfm,
         vol_budget=args.vol_budget,
+        optimizer_mode=args.optimizer_mode,
+        cvar_alpha=args.cvar_alpha,
+        cvar_budget=args.cvar_budget,
+        cvar_lookback=args.cvar_lookback,
+        use_nested_risk=args.use_nested_risk,
+        nested_core_vol=args.nested_core_vol,
+        nested_sat_vol=args.nested_sat_vol,
+        nested_nt_vol=args.nested_nt_vol,
+        nested_sleeve_weights=_parse_nested_sleeve_weights(args.nested_sleeve_weights),
+        saa_method=args.saa_method,
+        use_bl_stress_views=args.use_bl_stress_views,
+        bl_stress_shock=args.bl_stress_shock,
         regime_vol_budgets=_parse_regime_vol_budgets(args.regime_vol_budgets),
         use_dd_guardrail=args.use_dd_guardrail,
         output_dir=Path(args.output_dir),

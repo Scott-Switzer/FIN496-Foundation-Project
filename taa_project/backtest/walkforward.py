@@ -32,13 +32,15 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from taa_project.config import ALL_SAA, BM2_WEIGHTS, OUTPUT_DIR, TARGET_VOL, VOL_CEILING
+from taa_project.config import ALL_SAA, BM2_WEIGHTS, EQUITY_ASSETS, OUTPUT_DIR, TARGET_VOL, TIMESFM_CACHE_PATH, VOL_CEILING
 from taa_project.data_loader import availability_flag, load_fred, load_prices, log_returns
 from taa_project.optimizer.cvxpy_opt import (
+    _build_cvar_scenarios,
     EnsembleConfig,
     OptimizationResult,
     solve_taa_monthly_result,
 )
+from taa_project.optimizer.nested_risk import solve_nested_taa
 from taa_project.signals import SignalBundle
 from taa_project.signals.dd_guardrail import dd_guardrail_multiplier, trailing_drawdown_series
 from taa_project.signals.momentum_adm import adm_score, cross_sectional_rank
@@ -55,6 +57,7 @@ from taa_project.signals.vol_timesfm import (
     compute_vol_and_direction_signals,
     timesfm_is_available,
 )
+from taa_project.saa.saa_comparison import bl_with_stress_views
 
 
 DEFAULT_START = "2003-01-01"
@@ -64,7 +67,7 @@ DEFAULT_EMBARGO_BUSINESS_DAYS = 21
 DEFAULT_COVARIANCE_LOOKBACK = 252
 DEFAULT_COVARIANCE_MIN_OBSERVATIONS = 63
 DIAGONAL_DEFAULT = 0.04
-TIMESFM_CACHE_DIR = OUTPUT_DIR / "timesfm_cache"
+TIMESFM_CACHE_FILE = TIMESFM_CACHE_PATH
 
 WALKFORWARD_FOLDS_FILENAME = "walkforward_folds.csv"
 OOS_RETURNS_FILENAME = "oos_returns.csv"
@@ -305,10 +308,10 @@ def build_signal_bundle_at_date(
     fred_features: pd.DataFrame,
     trend_signals: pd.DataFrame,
     momo_signals: pd.DataFrame,
-    returns: pd.DataFrame,
+    prices: pd.DataFrame,
     use_timesfm: bool,
     forecaster: TimesFMForecaster | None,
-    timesfm_cache_dir: Path | None,
+    timesfm_cache_path: Path | None,
     hmm_model_cache: object | None,
     hmm_states: int,
 ) -> tuple[SignalBundle, object | None]:
@@ -320,11 +323,10 @@ def build_signal_bundle_at_date(
     - `fred_features`: lagged FRED feature panel.
     - `trend_signals`: precomputed trend scores.
     - `momo_signals`: precomputed momentum scores.
-    - `returns`: audited asset log-return dataframe.
+    - `prices`: audited asset price dataframe.
     - `use_timesfm`: whether to invoke the optional TimesFM layer.
     - `forecaster`: optional TimesFM forecaster instance.
-    - `timesfm_cache_dir`: optional shared cache directory for per-decision
-      TimesFM signals.
+    - `timesfm_cache_path`: shared TimesFM parquet cache path.
     - `hmm_model_cache`: previous fold-local HMM model, reused on refit failure.
     - `hmm_states`: number of HMM states.
 
@@ -367,14 +369,13 @@ def build_signal_bundle_at_date(
     trend = trend_signals.loc[:decision_date].iloc[-1].reindex(ALL_SAA).fillna(0.0)
     momo = momo_signals.loc[:decision_date].iloc[-1].reindex(ALL_SAA).fillna(0.0)
 
-    if use_timesfm and forecaster is not None:
+    if use_timesfm:
         timesfm_frame = compute_vol_and_direction_signals(
-            returns,
+            prices,
             decision_date,
-            forecaster,
-            horizon=21,
-            cache_dir=timesfm_cache_dir,
-            cache_key_prefix="use_timesfm_1",
+            forecaster=forecaster,
+            horizon=64,
+            cache_path=TIMESFM_CACHE_FILE if timesfm_cache_path is None else timesfm_cache_path,
         )
         timesfm_mu = timesfm_frame.get("mu_ann", pd.Series(dtype=float)).reindex(ALL_SAA).fillna(0.0)
         timesfm_sigma = timesfm_frame.get("sigma_ann_fcst", pd.Series(dtype=float)).reindex(ALL_SAA)
@@ -482,7 +483,7 @@ def run_walkforward(
     vol_budget: float = TARGET_VOL,
     output_dir: Path = OUTPUT_DIR,
     ensemble_config: EnsembleConfig | None = None,
-    timesfm_cache_dir: Path | None = TIMESFM_CACHE_DIR,
+    timesfm_cache_path: Path | None = TIMESFM_CACHE_FILE,
 ) -> dict[str, pd.DataFrame]:
     """Run the full walk-forward OOS TAA backtest.
 
@@ -496,8 +497,7 @@ def run_walkforward(
     - `vol_budget`: internal ex-ante annualized volatility target.
     - `output_dir`: destination for generated CSV outputs.
     - `ensemble_config`: optional signal-ensemble configuration.
-    - `timesfm_cache_dir`: optional shared cache directory for per-decision
-      TimesFM signals.
+    - `timesfm_cache_path`: optional shared parquet cache path for TimesFM.
 
     Outputs:
     - Dictionary containing exported dataframes:
@@ -542,15 +542,12 @@ def run_walkforward(
 
     fold_lookup = {decision_date: spec for spec in fold_specs for decision_date in spec.decision_dates}
 
-    forecaster: TimesFMForecaster | None = None
     if use_timesfm and not timesfm_is_available():
         raise RuntimeError(
             "TimesFM was requested with --timesfm, but the dependency is not installed. "
             "Rerun with --no-timesfm or install the official google-research/timesfm stack."
         )
     timesfm_enabled = bool(use_timesfm)
-    if timesfm_enabled:
-        forecaster = TimesFMForecaster(max_context=1024, max_horizon=64)
 
     config = EnsembleConfig() if ensemble_config is None else ensemble_config
     if config.vol_budget_by_regime is not None:
@@ -574,6 +571,7 @@ def run_walkforward(
     return_frames: list[pd.DataFrame] = []
     guardrail_switch_rows: list[dict[str, object]] = []
     current_guardrail_multiplier = 1.0
+    breach_log_path = output_dir / "breaches.log"
 
     for index, decision_date in enumerate(decision_dates):
         fold_spec = fold_lookup[pd.Timestamp(decision_date)]
@@ -587,10 +585,10 @@ def run_walkforward(
             fred_features=fred_features,
             trend_signals=trend_signals,
             momo_signals=momo_signals,
-            returns=returns.loc[:, ALL_SAA],
+            prices=prices.loc[:, ALL_SAA],
             use_timesfm=timesfm_enabled,
-            forecaster=forecaster,
-            timesfm_cache_dir=timesfm_cache_dir if timesfm_enabled else None,
+            forecaster=None,
+            timesfm_cache_path=timesfm_cache_path if timesfm_enabled else None,
             hmm_model_cache=current_hmm_model,
             hmm_states=hmm_states,
         )
@@ -608,6 +606,16 @@ def run_walkforward(
             decision_date=pd.Timestamp(decision_date),
             timesfm_sigma=signal_bundle.timesfm_sigma,
         )
+        if config.use_bl_stress_views:
+            mu_bl = bl_with_stress_views(
+                policy_weights=pd.Series(BM2_WEIGHTS, dtype=float),
+                covariance=covariance,
+                regime_label=signal_bundle.regime_label,
+                stress_equity_shock_sigmas=config.bl_stress_shock,
+                equity_assets=EQUITY_ASSETS,
+            ).reindex(ALL_SAA).fillna(0.0)
+            signal_score = 0.5 * signal_score + 0.5 * mu_bl
+            del mu_bl
         guardrail_multiplier = 1.0
         if config.use_dd_guardrail and return_frames:
             realized_history = pd.concat([frame["portfolio_return"] for frame in return_frames]).sort_index()
@@ -632,14 +640,44 @@ def run_walkforward(
         )
         active_vol_budget *= guardrail_multiplier
         print(f"[SOLVE] vb={active_vol_budget} regime={signal_bundle.regime_label}")
-        solve_result = solve_taa_monthly_result(
-            signal_score=signal_score,
-            cov_matrix=covariance,
-            prev_weights=previous_weights,
-            available=availability.loc[:decision_date].iloc[-1].reindex(ALL_SAA).fillna(0.0),
-            as_of_date=pd.Timestamp(decision_date),
-            vol_budget=active_vol_budget,
+        available_assets = availability.loc[:decision_date].iloc[-1].reindex(ALL_SAA).fillna(0.0)
+        active_universe = [asset for asset in ALL_SAA if bool(available_assets.get(asset, 0.0))]
+        scenario_returns = (
+            _build_cvar_scenarios(
+                asset_log_returns=returns.loc[:, ALL_SAA],
+                decision_date=pd.Timestamp(decision_date),
+                universe=active_universe,
+                lookback_days=config.cvar_lookback_days,
+            )
+            if config.optimizer_mode == "cvar"
+            else None
         )
+        if config.use_nested_risk and config.nested_risk_config is not None:
+            solve_result = solve_nested_taa(
+                expected_returns=signal_score,
+                cov_matrix=covariance,
+                available=available_assets,
+                previous_weights=previous_weights,
+                config=config.nested_risk_config,
+                ensemble_config=config,
+                asset_log_returns=returns.loc[:, ALL_SAA]
+                if config.nested_risk_config.use_cvar_per_sleeve or config.optimizer_mode == "cvar"
+                else None,
+                as_of_date=pd.Timestamp(decision_date),
+                breach_log_path=breach_log_path,
+            )
+        else:
+            solve_result = solve_taa_monthly_result(
+                signal_score=signal_score,
+                cov_matrix=covariance,
+                prev_weights=previous_weights,
+                available=available_assets,
+                as_of_date=pd.Timestamp(decision_date),
+                vol_budget=active_vol_budget,
+                breach_log_path=breach_log_path,
+                config=config,
+                scenario_returns=scenario_returns,
+            )
 
         weight_row = solve_result.weights.rename(pd.Timestamp(decision_date))
         weight_row["fold_id"] = fold_spec.fold_id

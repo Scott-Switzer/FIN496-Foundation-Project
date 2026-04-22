@@ -227,19 +227,17 @@ def _solve_vol_sleeve(
 
     guard_process_memory(f"nested_vol:{','.join(assets)}:before_build")
     weights = cp.Variable(len(assets), nonneg=True)
-    vol_slack = cp.Variable(nonneg=True)
     turnover = cp.norm(weights - prev, 1)
     constraints = [
         cp.sum(weights) == 1.0,
         weights >= lower_bounds.to_numpy(dtype=float),
         weights <= upper_bounds.to_numpy(dtype=float),
-        cp.quad_form(weights, cp.psd_wrap(sigma)) <= vol_target**2 + vol_slack,
+        cp.quad_form(weights, cp.psd_wrap(sigma)) <= vol_target**2,
     ]
     objective = cp.Maximize(
         mu @ weights
         - DEFAULT_RISK_AVERSION * cp.quad_form(weights, cp.psd_wrap(sigma))
         - COST_PER_TURNOVER * sleeve_weight * turnover
-        - DEFAULT_VOL_SLACK_PENALTY * vol_slack
     )
     prob = cp.Problem(objective, constraints)
     try:
@@ -250,7 +248,7 @@ def _solve_vol_sleeve(
             raise RuntimeError(f"Nested sleeve returned no solution. Problem status: {prob.status}")
         out = pd.Series(np.asarray(weights.value, dtype=float), index=assets, dtype=float)
     finally:
-        del weights, vol_slack, turnover, constraints, objective, prob
+        del weights, turnover, constraints, objective, prob
         gc.collect()
         guard_process_memory(f"nested_vol:{','.join(assets)}:after_cleanup")
     return out

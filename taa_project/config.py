@@ -29,6 +29,8 @@ CORE        = ["SPXT", "FTSE100", "LBUSTRUU", "BROAD_TIPS"]
 SATELLITE   = ["B3REITT", "XAU", "SILVER_FUT", "NIKKEI225", "CSI300_CHINA"]
 NONTRAD     = ["BITCOIN", "CHF_FRANC"]
 EQUITY_ASSETS = ["SPXT", "FTSE100", "NIKKEI225", "CSI300_CHINA"]
+# Expanded set for BL stress shock — includes real assets that crash with equities
+RISKY_ASSETS_FOR_BL_STRESS = EQUITY_ASSETS + ["SILVER_FUT", "XAU", "B3REITT"]
 ALL_SAA     = CORE + SATELLITE + NONTRAD
 
 SAA_BANDS: Dict[str, tuple[float, float]] = {

@@ -741,9 +741,8 @@ def solve_taa_monthly_result(
                 weights <= upper_bounds.to_numpy(dtype=float),
                 weights <= SINGLE_SLEEVE_MAX,
             ]
-            vol_slack = cp.Variable(nonneg=True)
-            constraints.append(cp.quad_form(weights, cp.psd_wrap(sigma)) <= vol_budget**2 + vol_slack)
-            slack_penalty = vol_slack_penalty * vol_slack
+            constraints.append(cp.quad_form(weights, cp.psd_wrap(sigma)) <= vol_budget**2)
+            slack_penalty = 0.0
         else:
             if scenario_returns is None:
                 raise ValueError("CVaR mode requires `scenario_returns` built from strictly causal return history.")
@@ -796,7 +795,7 @@ def solve_taa_monthly_result(
 
         projected = _project_mode_weights_to_feasible_set("taa_monthly", np.asarray(weights.value, dtype=float), universe)
         full_weights = _full_weights(projected, universe)
-        slack_value = float(vol_slack.value) if vol_slack.value is not None else 0.0
+        slack_value = 0.0
         if slack_value > 1e-10:
             realized_vol = float(np.sqrt(max(projected @ sigma @ projected, 0.0)))
             _append_optimizer_breach_row(

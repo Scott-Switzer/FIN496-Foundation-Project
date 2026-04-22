@@ -32,7 +32,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from taa_project.config import ALL_SAA, BM2_WEIGHTS, EQUITY_ASSETS, OUTPUT_DIR, TARGET_VOL, TIMESFM_CACHE_PATH, VOL_CEILING
+from taa_project.config import ALL_SAA, BM2_WEIGHTS, EQUITY_ASSETS, RISKY_ASSETS_FOR_BL_STRESS, OUTPUT_DIR, TARGET_VOL, TIMESFM_CACHE_PATH, VOL_CEILING
 from taa_project.data_loader import availability_flag, load_fred, load_prices, log_returns
 from taa_project.optimizer.cvxpy_opt import (
     _build_cvar_scenarios,
@@ -644,7 +644,7 @@ def run_walkforward(
                 covariance=covariance,
                 regime_label=signal_bundle.regime_label,
                 stress_equity_shock_sigmas=config.bl_stress_shock,
-                equity_assets=EQUITY_ASSETS,
+                equity_assets=RISKY_ASSETS_FOR_BL_STRESS,
             ).reindex(ALL_SAA).fillna(0.0)
             signal_score = 0.5 * signal_score + 0.5 * mu_bl
             del mu_bl

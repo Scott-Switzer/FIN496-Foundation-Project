@@ -607,7 +607,8 @@ def compute_target_weights(
     - `returns`: SAA log-return dataframe.
     - `rebalance_date`: date of the allocation decision.
     - `inception_dates`: first valid date per asset.
-    - `method`: SAA construction method, either `risk_parity` or `hrp`.
+    - `method`: SAA construction method — `risk_parity`, `hrp`, or
+      `mean_variance`.
 
     Outputs:
     - Full-universe weight series with unavailable assets fixed at zero.
@@ -639,6 +640,27 @@ def compute_target_weights(
         from taa_project.saa.saa_comparison import solve_hierarchical_risk_parity
 
         target_weights = solve_hierarchical_risk_parity(observed_assets, covariance).reindex(observed_assets).fillna(0.0)
+    elif method == "mean_variance":
+        # Black-Litterman equilibrium returns blended with 12-1 month momentum,
+        # then solve for the tangency portfolio (or vol-constrained max-return
+        # portfolio when tangency exceeds the IPS internal vol target).
+        # Uses SAA bounds and aggregate IPS caps throughout.
+        # See saa_comparison.py for full solver documentation.
+        from taa_project.saa.saa_comparison import (
+            IPS_TARGET_VOL,
+            RF_ANNUAL,
+            blended_expected_returns,
+            solve_mean_variance,
+        )
+
+        expected_returns = blended_expected_returns(returns, rebalance_date, covariance, observed_assets)
+        target_weights = solve_mean_variance(
+            observed_assets,
+            covariance,
+            expected_returns,
+            target_vol=IPS_TARGET_VOL,
+            rf=RF_ANNUAL,
+        )
     else:
         raise ValueError(f"Unsupported SAA method: {method}")
 
@@ -745,7 +767,8 @@ def build_saa_portfolio(
     - `start_date`: earliest allowed start date for portfolio inception.
     - `end_date`: last date to include in the output history.
     - `output_dir`: destination directory for output CSV files.
-    - `method`: SAA construction method, either `risk_parity` or `hrp`.
+    - `method`: SAA construction method — `risk_parity`, `hrp`, or
+      `mean_variance`.
 
     Outputs:
     - Tuple `(weights_df, returns_df)` also written to `saa_weights.csv` and
@@ -805,9 +828,9 @@ def main() -> None:
     parser.add_argument("--end", default=DEFAULT_END, help="Last date to include in the output history.")
     parser.add_argument(
         "--method",
-        choices=["risk_parity", "hrp"],
-        default="risk_parity",
-        help="Strategic asset allocation method.",
+        choices=["risk_parity", "hrp", "mean_variance"],
+        default="mean_variance",
+        help="Strategic asset allocation method (default: mean_variance).",
     )
     parser.add_argument("--output-dir", default=str(OUTPUT_DIR), help="Destination directory for output CSV files.")
     args = parser.parse_args()

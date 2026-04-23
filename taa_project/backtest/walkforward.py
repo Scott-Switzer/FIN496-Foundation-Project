@@ -485,6 +485,7 @@ def run_walkforward(
     output_dir: Path = OUTPUT_DIR,
     ensemble_config: EnsembleConfig | None = None,
     timesfm_cache_path: Path | None = TIMESFM_CACHE_FILE,
+    use_mv_signal: bool = True,
 ) -> dict[str, pd.DataFrame]:
     """Run the full walk-forward OOS TAA backtest.
 
@@ -499,6 +500,11 @@ def run_walkforward(
     - `output_dir`: destination for generated CSV outputs.
     - `ensemble_config`: optional signal-ensemble configuration.
     - `timesfm_cache_path`: optional shared parquet cache path for TimesFM.
+    - `use_mv_signal`: when `True`, replace the multi-signal ensemble `mu`
+      with Black-Litterman equilibrium returns blended with 12-1 month
+      momentum (the same estimator used by the best-performing SAA
+      mean-variance method). The TAA CVXPY optimizer objective and all IPS
+      constraints remain identical — only the expected-return input changes.
 
     Outputs:
     - Dictionary containing exported dataframes:
@@ -623,21 +629,42 @@ def run_walkforward(
             as_of_date=pd.Timestamp(decision_date),
         )
 
-        from taa_project.optimizer.cvxpy_opt import ensemble_score as _ensemble_score
-        signal_score = _ensemble_score(
-            regime_tilt=regime_tilt,
-            trend_sig=signal_bundle.trend,
-            momo_sig=signal_bundle.momo,
-            timesfm_mu=signal_bundle.timesfm_mu,
-            macro_factor_mu=macro_mu,
-            config=config,
-        )
-
+        # Covariance and available universe are computed first so that both the
+        # ensemble path and the MV (BL+momentum) path can reference them.
         covariance = estimate_taa_covariance(
             returns.loc[:, ALL_SAA],
             decision_date=pd.Timestamp(decision_date),
             timesfm_sigma=signal_bundle.timesfm_sigma,
         )
+        available_assets = availability.loc[:decision_date].iloc[-1].reindex(ALL_SAA).fillna(0.0)
+        active_universe = [asset for asset in ALL_SAA if bool(available_assets.get(asset, 0.0))]
+
+        if use_mv_signal:
+            # Mean-variance signal: BL equilibrium returns (anchored to BM2
+            # policy weights) blended with 12-1 month cross-sectional momentum.
+            # Identical to the expected-return estimator used by the best-
+            # performing SAA method. Point-in-time safe — uses only data up to
+            # and including the current decision date.
+            from taa_project.saa.saa_comparison import blended_expected_returns as _bl_momo_mu
+
+            signal_score = _bl_momo_mu(
+                returns.loc[:, ALL_SAA],
+                pd.Timestamp(decision_date),
+                covariance,
+                active_universe,
+            ).reindex(ALL_SAA).fillna(0.0)
+        else:
+            from taa_project.optimizer.cvxpy_opt import ensemble_score as _ensemble_score
+
+            signal_score = _ensemble_score(
+                regime_tilt=regime_tilt,
+                trend_sig=signal_bundle.trend,
+                momo_sig=signal_bundle.momo,
+                timesfm_mu=signal_bundle.timesfm_mu,
+                macro_factor_mu=macro_mu,
+                config=config,
+            )
+
         if config.use_bl_stress_views:
             mu_bl = bl_with_stress_views(
                 policy_weights=pd.Series(BM2_WEIGHTS, dtype=float),
@@ -672,8 +699,6 @@ def run_walkforward(
         )
         active_vol_budget *= guardrail_multiplier
         print(f"[SOLVE] vb={active_vol_budget} regime={signal_bundle.regime_label}")
-        available_assets = availability.loc[:decision_date].iloc[-1].reindex(ALL_SAA).fillna(0.0)
-        active_universe = [asset for asset in ALL_SAA if bool(available_assets.get(asset, 0.0))]
         scenario_returns = (
             _build_cvar_scenarios(
                 asset_log_returns=returns.loc[:, ALL_SAA],

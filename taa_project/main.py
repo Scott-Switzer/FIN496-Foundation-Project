@@ -343,7 +343,8 @@ def run_pipeline(
     nested_sat_vol: float = 0.10,
     nested_nt_vol: float = 0.15,
     nested_sleeve_weights: tuple[float, float, float] = (0.55, 0.35, 0.10),
-    saa_method: str = "risk_parity",
+    saa_method: str = "mean_variance",
+    use_mv_signal: bool = True,
     use_bl_stress_views: bool = False,
     bl_stress_shock: float = 1.0,
     regime_vol_budgets: dict[str, float] | None = None,
@@ -369,6 +370,9 @@ def run_pipeline(
     - `nested_sleeve_weights`: target blend across Core, Satellite, and
       Non-Traditional sleeves.
     - `saa_method`: strategic asset allocation method for the annual SAA book.
+    - `use_mv_signal`: when `True`, the TAA optimizer uses BL-equilibrium
+      returns blended with 12-1 month momentum as its `mu` input instead of
+      the multi-signal HMM/trend/momo/macro ensemble.
     - `use_bl_stress_views`: whether to blend in regime-conditional BL priors.
     - `bl_stress_shock`: annualized sigma shock subtracted from equities in
       stress regimes when BL stress views are enabled.
@@ -457,6 +461,7 @@ def run_pipeline(
         vol_budget=vol_budget,
         ensemble_config=ensemble_config,
         output_dir=output_dir,
+        use_mv_signal=use_mv_signal,
     )
 
     log_step("Task 7: attribution")
@@ -619,10 +624,24 @@ def main() -> None:
     parser.add_argument(
         "--saa-method",
         dest="saa_method",
-        choices=["risk_parity", "hrp"],
-        default="risk_parity",
-        help="Strategic asset allocation method. Default is target-aware risk parity.",
+        choices=["risk_parity", "hrp", "mean_variance"],
+        default="mean_variance",
+        help="Strategic asset allocation method. Default is mean_variance (BL+momentum).",
     )
+    mv_signal_group = parser.add_mutually_exclusive_group()
+    mv_signal_group.add_argument(
+        "--mv-signal",
+        dest="use_mv_signal",
+        action="store_true",
+        help="Use BL-equilibrium + momentum as the TAA mu input (default: enabled).",
+    )
+    mv_signal_group.add_argument(
+        "--no-mv-signal",
+        dest="use_mv_signal",
+        action="store_false",
+        help="Use the full HMM/trend/momo/macro signal ensemble for TAA mu.",
+    )
+    parser.set_defaults(use_mv_signal=True)
     parser.add_argument("--bl-stress-views", dest="use_bl_stress_views", action="store_true")
     parser.add_argument("--no-bl-stress-views", dest="use_bl_stress_views", action="store_false")
     parser.set_defaults(use_bl_stress_views=False)
@@ -664,6 +683,7 @@ def main() -> None:
         nested_nt_vol=args.nested_nt_vol,
         nested_sleeve_weights=_parse_nested_sleeve_weights(args.nested_sleeve_weights),
         saa_method=args.saa_method,
+        use_mv_signal=args.use_mv_signal,
         use_bl_stress_views=args.use_bl_stress_views,
         bl_stress_shock=args.bl_stress_shock,
         regime_vol_budgets=_parse_regime_vol_budgets(args.regime_vol_budgets),

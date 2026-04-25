@@ -16,7 +16,7 @@ def test_run_pipeline_orchestrates_with_stubbed_dependencies(monkeypatch, tmp_pa
     def fake_run_data_audit(output_dir):
         return {"output_dir": output_dir}
 
-    def fake_build_saa_portfolio(start_date, end_date, output_dir, method="risk_parity"):
+    def fake_build_saa_portfolio(start_date, end_date, output_dir, method="min_variance"):
         captured["saa_method"] = method
         return None
 
@@ -27,7 +27,13 @@ def test_run_pipeline_orchestrates_with_stubbed_dependencies(monkeypatch, tmp_pa
         captured["walkforward_vol_budget"] = vol_budget
         captured["walkforward_regime_vol_budgets"] = None if ensemble_config is None else ensemble_config.vol_budget_by_regime
         captured["walkforward_dd_guardrail"] = False if ensemble_config is None else ensemble_config.use_dd_guardrail
-        return {"folds": pd.DataFrame(), "oos_returns": pd.DataFrame(), "oos_weights": pd.DataFrame(), "oos_regimes": pd.DataFrame()}
+        return {
+            "folds": pd.DataFrame(),
+            "oos_returns": pd.DataFrame(),
+            "oos_weights": pd.DataFrame(),
+            "oos_holdings": pd.DataFrame(),
+            "oos_regimes": pd.DataFrame(),
+        }
 
     def fake_build_attribution(start, end, folds, use_timesfm, vol_budget, output_dir, ensemble_config=None):
         captured["attribution_vol_budget"] = vol_budget
@@ -35,7 +41,7 @@ def test_run_pipeline_orchestrates_with_stubbed_dependencies(monkeypatch, tmp_pa
         captured["attribution_dd_guardrail"] = False if ensemble_config is None else ensemble_config.use_dd_guardrail
         return {"per_signal": pd.DataFrame()}
 
-    def fake_build_reporting(start, end, folds, use_timesfm, vol_budget, output_dir, figure_dir, saa_method="risk_parity", ensemble_config=None):
+    def fake_build_reporting(start, end, folds, use_timesfm, vol_budget, output_dir, figure_dir, saa_method="min_variance", ensemble_config=None):
         captured["reporting_vol_budget"] = vol_budget
         captured["reporting_regime_vol_budgets"] = None if ensemble_config is None else ensemble_config.vol_budget_by_regime
         captured["reporting_dd_guardrail"] = False if ensemble_config is None else ensemble_config.use_dd_guardrail
@@ -112,8 +118,8 @@ def test_run_pipeline_orchestrates_with_stubbed_dependencies(monkeypatch, tmp_pa
     assert captured["walkforward_dd_guardrail"] is True
     assert captured["attribution_dd_guardrail"] is True
     assert captured["reporting_dd_guardrail"] is True
-    assert captured["saa_method"] == "risk_parity"
-    assert captured["reporting_saa_method"] == "risk_parity"
+    assert captured["saa_method"] == "min_variance"
+    assert captured["reporting_saa_method"] == "min_variance"
 
 
 def test_run_pipeline_raises_when_timesfm_requested_but_unavailable(monkeypatch, tmp_path) -> None:

@@ -343,7 +343,7 @@ def run_pipeline(
     nested_sat_vol: float = 0.10,
     nested_nt_vol: float = 0.15,
     nested_sleeve_weights: tuple[float, float, float] = (0.55, 0.35, 0.10),
-    saa_method: str = "risk_parity",
+    saa_method: str = "min_variance",
     use_bl_stress_views: bool = False,
     bl_stress_shock: float = 1.0,
     regime_vol_budgets: dict[str, float] | None = None,
@@ -619,9 +619,9 @@ def main() -> None:
     parser.add_argument(
         "--saa-method",
         dest="saa_method",
-        choices=["risk_parity", "hrp"],
-        default="risk_parity",
-        help="Strategic asset allocation method. Default is target-aware risk parity.",
+        choices=["risk_parity", "min_variance", "hrp"],
+        default="min_variance",
+        help="Strategic asset allocation method. Default is constrained minimum variance.",
     )
     parser.add_argument("--bl-stress-views", dest="use_bl_stress_views", action="store_true")
     parser.add_argument("--no-bl-stress-views", dest="use_bl_stress_views", action="store_false")

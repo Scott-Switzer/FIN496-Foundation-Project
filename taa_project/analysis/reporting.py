@@ -47,6 +47,7 @@ from scipy.optimize import Bounds, minimize
 from taa_project.analysis.attribution import build_attribution
 from taa_project.analysis.common import (
     RISK_FREE_RATE,
+    TRADING_DAYS_PER_YEAR,
     annualized_return,
     annualized_volatility,
     calmar_ratio,
@@ -76,14 +77,17 @@ from taa_project.config import (
     CORE_FLOOR,
     DEFAULT_RANDOM_SEED,
     FIGURES_DIR,
+    MAX_DD,
     MPLCONFIG_DIR,
     NONTRAD,
     NONTRAD_CAP,
     OUTPUT_DIR,
     REPORT_DIR,
+    SAA_BANDS,
     SATELLITE,
     SATELLITE_CAP,
     SINGLE_SLEEVE_MAX,
+    TAA_BANDS,
     TARGET_VOL,
     TRIAL_LEDGER_CSV,
     VOL_CEILING,
@@ -138,6 +142,11 @@ LEGACY_SAA_METHODS = (
 )
 
 TAA_BASELINE_VARIANT_ID = "taa_baseline"
+ROLLING_VOL_WINDOWS = {
+    "rolling_vol_21d": 21,
+    "rolling_vol_63d": 63,
+    "rolling_vol_252d": TRADING_DAYS_PER_YEAR,
+}
 
 
 def _annualized_expected_returns(
@@ -405,6 +414,7 @@ def build_saa_method_comparison(
     methods = LEGACY_SAA_METHODS + (("hrp",) if include_hrp else ())
     for method in methods:
         rebalance_targets: dict[pd.Timestamp, pd.Series] = {}
+        rebalance_active_assets: dict[pd.Timestamp, list[str]] = {}
         for rebalance_date in schedule:
             eligible_assets = available_assets_on(rebalance_date, inception_dates)
             observed_assets = [asset for asset in eligible_assets if pd.notna(prices.loc[rebalance_date, asset])]
@@ -415,10 +425,12 @@ def build_saa_method_comparison(
             full_weights = pd.Series(0.0, index=ALL_SAA, dtype=float)
             full_weights.loc[observed_assets] = target.reindex(observed_assets).fillna(0.0)
             rebalance_targets[rebalance_date] = full_weights
+            rebalance_active_assets[rebalance_date] = observed_assets
 
         weights_df, returns_df = simulate_portfolio(
             returns=returns,
             rebalance_targets=rebalance_targets,
+            rebalance_active_assets=rebalance_active_assets,
             start_date=schedule[0],
             end_date=pd.Timestamp(end_date),
         )
@@ -518,6 +530,7 @@ def _build_strategy_panels(
     """
 
     asset_returns = simple_asset_returns().dropna(how="all")
+    inception_dates = first_valid_dates(load_saa_prices())
 
     saa_targets = extract_rebalance_targets(outputs["saa_weights"], outputs["saa_returns"])
     bm1_targets = extract_rebalance_targets(outputs["bm1_weights"], outputs["bm1_returns"])
@@ -533,6 +546,9 @@ def _build_strategy_panels(
     bm1_target_daily = outputs["bm1_weights"].loc[:, ALL_SAA].astype(float)
     bm2_target_daily = outputs["bm2_weights"].loc[:, ALL_SAA].astype(float)
     taa_target_daily = decision_weights_to_daily_target(taa_targets, taa_realized_asset.index)
+    taa_realized_holdings = outputs["oos_holdings"].loc[:, ALL_SAA].astype(float) if not outputs["oos_holdings"].empty else pd.DataFrame()
+    if taa_realized_holdings.empty:
+        taa_realized_holdings = decision_weights_to_daily_holdings(taa_targets, taa_realized_asset)
 
     panels = {
         "asset_returns": asset_returns,
@@ -552,7 +568,7 @@ def _build_strategy_panels(
             "BM1": outputs["bm1_returns"]["turnover"],
             "BM2": outputs["bm2_returns"]["turnover"],
             "SAA": outputs["saa_returns"]["turnover"],
-            "SAA+TAA": outputs["oos_weights"]["turnover"],
+            "SAA+TAA": outputs["oos_returns"]["turnover"] if "turnover" in outputs["oos_returns"].columns else outputs["oos_weights"]["turnover"],
         },
         "costs": {
             "BM1": outputs["bm1_returns"]["turnover_cost"],
@@ -570,8 +586,15 @@ def _build_strategy_panels(
             "SAA": decision_weights_to_daily_holdings(saa_targets, saa_realized_asset),
             "BM1": decision_weights_to_daily_holdings(bm1_targets, bm1_realized_asset),
             "BM2": decision_weights_to_daily_holdings(bm2_targets, bm2_realized_asset),
-            "SAA+TAA": decision_weights_to_daily_holdings(taa_targets, taa_realized_asset),
+            "SAA+TAA": taa_realized_holdings,
         },
+        "decision_dates": {
+            "SAA": pd.DatetimeIndex(saa_targets.index),
+            "BM1": pd.DatetimeIndex(bm1_targets.index),
+            "BM2": pd.DatetimeIndex(bm2_targets.index),
+            "SAA+TAA": pd.DatetimeIndex(taa_targets.index),
+        },
+        "inception_dates": inception_dates,
         "regimes_daily": outputs["oos_returns"]["regime"].copy(),
         "regimes_decision": outputs["oos_regimes"].copy(),
         "folds": pd.read_csv(
@@ -728,26 +751,137 @@ def _regime_allocation_summary(panels: dict[str, object]) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def _ips_compliance_rows(portfolio: str, weights: pd.DataFrame) -> list[dict[str, object]]:
-    """Audit one strategy's daily target schedule against the IPS constraints.
+def _rolling_realized_volatility(returns: pd.Series, window: int) -> pd.Series:
+    """Compute realized annualized volatility over a fixed trailing window.
+
+    Inputs:
+    - `returns`: daily simple return series.
+    - `window`: trailing window length in trading days.
+
+    Outputs:
+    - Rolling annualized volatility with full-window initialization.
+
+    Citation:
+    - Whitmore IPS Section 10.1 trailing 1M / 3M / 12M volatility reporting.
+
+    Point-in-time safety:
+    - Ex-post reporting transform only.
+    """
+
+    clean = returns.dropna()
+    if clean.empty:
+        return pd.Series(dtype=float)
+    return clean.rolling(window=window, min_periods=window).std(ddof=0) * np.sqrt(TRADING_DAYS_PER_YEAR)
+
+
+def _append_breach_rows(
+    rows: list[dict[str, object]],
+    portfolio: str,
+    rule: str,
+    values: pd.Series,
+    bound: float,
+    predicate: pd.Series,
+) -> None:
+    """Append one row per breached date for a boolean predicate."""
+
+    if values.empty or predicate.empty:
+        return
+    flagged = predicate.reindex(values.index).fillna(False)
+    for date, value in values.loc[flagged].items():
+        rows.append(
+            {
+                "portfolio": portfolio,
+                "date": date,
+                "rule": rule,
+                "value": float(value),
+                "bound": float(bound),
+            }
+        )
+
+
+def _activation_dates(
+    decision_dates: pd.DatetimeIndex,
+    inception_dates: pd.Series,
+    holdings_index: pd.DatetimeIndex,
+) -> dict[str, pd.Timestamp | None]:
+    """Return the first rebalance date when each asset becomes policy-active."""
+
+    unique_dates = pd.DatetimeIndex(sorted(pd.to_datetime(decision_dates).unique()))
+    realized_dates = pd.DatetimeIndex(sorted(pd.to_datetime(holdings_index).unique()))
+    activations: dict[str, pd.Timestamp | None] = {}
+    for asset in ALL_SAA:
+        inception_date = inception_dates.get(asset, pd.NaT)
+        if pd.isna(inception_date) or unique_dates.empty or realized_dates.empty:
+            activations[asset] = None
+            continue
+        eligible = unique_dates[unique_dates >= pd.Timestamp(inception_date)]
+        if not len(eligible):
+            activations[asset] = None
+            continue
+        effective_dates = realized_dates[realized_dates > pd.Timestamp(eligible[0])]
+        activations[asset] = pd.Timestamp(effective_dates[0]) if len(effective_dates) else None
+    return activations
+
+
+def _daily_band_frames(
+    index: pd.DatetimeIndex,
+    activations: dict[str, pd.Timestamp | None],
+    band_map: dict[str, tuple[float, float]],
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Build daily lower/upper bound panels with expanding-universe activation."""
+
+    lower = pd.DataFrame(0.0, index=index, columns=ALL_SAA, dtype=float)
+    upper = pd.DataFrame(0.0, index=index, columns=ALL_SAA, dtype=float)
+    for asset in ALL_SAA:
+        activation_date = activations.get(asset)
+        if activation_date is None:
+            continue
+        active_index = index[index >= activation_date]
+        if active_index.empty:
+            continue
+        asset_lower, asset_upper = band_map[asset]
+        lower.loc[active_index, asset] = float(asset_lower)
+        upper.loc[active_index, asset] = float(min(asset_upper, SINGLE_SLEEVE_MAX))
+    return lower, upper
+
+
+def _ips_compliance_rows(
+    portfolio: str,
+    holdings: pd.DataFrame,
+    returns: pd.Series,
+    decision_dates: pd.DatetimeIndex,
+    inception_dates: pd.Series,
+    band_map: dict[str, tuple[float, float]],
+) -> list[dict[str, object]]:
+    """Audit one strategy's realized holdings and returns against the IPS.
 
     Inputs:
     - `portfolio`: strategy label.
-    - `weights`: daily target-weight dataframe containing `ALL_SAA` columns.
+    - `holdings`: daily realized holdings dataframe containing `ALL_SAA`.
+    - `returns`: daily realized portfolio returns.
+    - `decision_dates`: rebalance / decision dates where new assets can enter.
+    - `inception_dates`: first valid observed date for each asset.
+    - `band_map`: either `SAA_BANDS` or `TAA_BANDS`.
 
     Outputs:
     - List of violation rows; empty when the schedule is fully compliant.
 
     Citation:
-    - Whitmore IPS `Guidelines.md` hard constraints.
+    - Whitmore IPS Sections 3, 5, 6, 7, and 10.
 
     Point-in-time safety:
     - Ex-post audit only.
     """
 
     rows: list[dict[str, object]] = []
-    aligned = weights.reindex(columns=ALL_SAA).fillna(0.0)
+    aligned = holdings.reindex(columns=ALL_SAA).fillna(0.0).astype(float)
+    aligned.index = pd.DatetimeIndex(pd.to_datetime(aligned.index))
+    realized_index = pd.DatetimeIndex(pd.to_datetime(returns.dropna().index))
+    if not realized_index.empty:
+        aligned = aligned.reindex(realized_index).dropna(how="all")
     tiered = tier_weight_frame(aligned)
+    activations = _activation_dates(decision_dates, inception_dates, aligned.index)
+    lower_bounds, upper_bounds = _daily_band_frames(aligned.index, activations, band_map)
 
     for date, row in aligned.iterrows():
         total_weight = float(row.sum())
@@ -776,6 +910,52 @@ def _ips_compliance_rows(portfolio: str, weights: pd.DataFrame) -> list[dict[str
                         "bound": bound,
                     }
                 )
+
+    tolerance = 1e-8
+    for asset in ALL_SAA:
+        lower_series = lower_bounds[asset]
+        upper_series = upper_bounds[asset]
+        holding_series = aligned[asset]
+        lower_rule = f"{portfolio.lower().replace('+', '_').replace(' ', '_')}_lower_{asset}"
+        upper_rule = f"{portfolio.lower().replace('+', '_').replace(' ', '_')}_upper_{asset}"
+        _append_breach_rows(
+            rows=rows,
+            portfolio=portfolio,
+            rule=lower_rule,
+            values=holding_series,
+            bound=float(lower_series.max()),
+            predicate=(holding_series + tolerance < lower_series) & (lower_series > 0.0),
+        )
+        _append_breach_rows(
+            rows=rows,
+            portfolio=portfolio,
+            rule=upper_rule,
+            values=holding_series,
+            bound=float(upper_series.max()),
+            predicate=holding_series > (upper_series + tolerance),
+        )
+
+    aligned_returns = returns.reindex(aligned.index).dropna()
+    for rule, window in ROLLING_VOL_WINDOWS.items():
+        rolling_vol = _rolling_realized_volatility(aligned_returns, window=window)
+        _append_breach_rows(
+            rows=rows,
+            portfolio=portfolio,
+            rule=rule,
+            values=rolling_vol,
+            bound=VOL_CEILING,
+            predicate=rolling_vol > (VOL_CEILING + tolerance),
+        )
+
+    drawdowns = drawdown_curve(aligned_returns)
+    _append_breach_rows(
+        rows=rows,
+        portfolio=portfolio,
+        rule="max_drawdown",
+        values=drawdowns,
+        bound=-MAX_DD,
+        predicate=drawdowns < (-MAX_DD - tolerance),
+    )
     return rows
 
 
@@ -1261,7 +1441,7 @@ def build_reporting(
     folds: int = 5,
     use_timesfm: bool = False,
     vol_budget: float = TARGET_VOL,
-    saa_method: str = "risk_parity",
+    saa_method: str = "min_variance",
     ensemble_config: EnsembleConfig | None = None,
     output_dir: Path = OUTPUT_DIR,
     figure_dir: Path = FIGURES_DIR,
@@ -1329,8 +1509,26 @@ def build_reporting(
     regime_allocations = _regime_allocation_summary(panels)
 
     compliance_rows = []
-    compliance_rows.extend(_ips_compliance_rows("SAA", panels["target_weights"]["SAA"]))
-    compliance_rows.extend(_ips_compliance_rows("SAA+TAA", panels["target_weights"]["SAA+TAA"]))
+    compliance_rows.extend(
+        _ips_compliance_rows(
+            "SAA",
+            holdings=panels["holdings"]["SAA"],
+            returns=panels["returns"]["SAA"],
+            decision_dates=panels["decision_dates"]["SAA"],
+            inception_dates=panels["inception_dates"],
+            band_map=SAA_BANDS,
+        )
+    )
+    compliance_rows.extend(
+        _ips_compliance_rows(
+            "SAA+TAA",
+            holdings=panels["holdings"]["SAA+TAA"],
+            returns=panels["returns"]["SAA+TAA"],
+            decision_dates=panels["decision_dates"]["SAA+TAA"],
+            inception_dates=panels["inception_dates"],
+            band_map=TAA_BANDS,
+        )
+    )
     compliance = pd.DataFrame(compliance_rows, columns=["portfolio", "date", "rule", "value", "bound"])
 
     metrics.to_csv(output_dir / PORTFOLIO_METRICS_FILENAME, index=False)

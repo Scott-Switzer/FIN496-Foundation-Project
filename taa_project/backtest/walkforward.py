@@ -32,13 +32,25 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from taa_project.config import ALL_SAA, BM2_WEIGHTS, EQUITY_ASSETS, RISKY_ASSETS_FOR_BL_STRESS, OUTPUT_DIR, TARGET_VOL, TIMESFM_CACHE_PATH, VOL_CEILING
+from taa_project.config import (
+    ALL_SAA,
+    BM2_WEIGHTS,
+    COST_PER_TURNOVER,
+    EQUITY_ASSETS,
+    OUTPUT_DIR,
+    RISKY_ASSETS_FOR_BL_STRESS,
+    TARGET_VOL,
+    TIMESFM_CACHE_PATH,
+    VOL_CEILING,
+)
 from taa_project.data_loader import availability_flag, load_fred, load_prices, log_returns
 from taa_project.optimizer.cvxpy_opt import (
     _build_cvar_scenarios,
     EnsembleConfig,
     OptimizationResult,
+    project_taa_weights_to_compliance,
     solve_taa_monthly_result,
+    violates_taa_constraints,
 )
 from taa_project.optimizer.nested_risk import solve_nested_taa
 from taa_project.signals import SignalBundle
@@ -73,6 +85,7 @@ TIMESFM_CACHE_FILE = TIMESFM_CACHE_PATH
 WALKFORWARD_FOLDS_FILENAME = "walkforward_folds.csv"
 OOS_RETURNS_FILENAME = "oos_returns.csv"
 OOS_WEIGHTS_FILENAME = "oos_weights.csv"
+OOS_HOLDINGS_FILENAME = "oos_holdings.csv"
 OOS_REGIMES_FILENAME = "oos_regimes.csv"
 GUARDRAIL_SWITCHES_FILENAME = "guardrail_switches.csv"
 
@@ -280,9 +293,9 @@ def estimate_taa_covariance(
     """
 
     history = returns.loc[:decision_date].tail(lookback_days)
-    covariance = history.cov(min_periods=min_observations)
+    covariance = history.cov(min_periods=min_observations) * 252.0
     covariance = covariance.reindex(index=ALL_SAA, columns=ALL_SAA)
-    variances = history.var(skipna=True).reindex(ALL_SAA)
+    variances = (history.var(skipna=True) * 252.0).reindex(ALL_SAA)
 
     for asset in ALL_SAA:
         variance = variances.get(asset, np.nan)
@@ -415,11 +428,13 @@ def simulate_period_returns(
     returns: pd.DataFrame,
     period_dates: pd.DatetimeIndex,
     starting_weights: pd.Series,
-    turnover_cost: float,
+    initial_turnover: float,
+    initial_turnover_cost: float,
+    available_assets: pd.Series,
     fold_id: int,
     decision_date: pd.Timestamp,
     regime_label: str,
-) -> tuple[pd.DataFrame, pd.Series]:
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.Series]:
     """Simulate daily OOS returns between two monthly decision dates.
 
     Inputs:
@@ -427,14 +442,20 @@ def simulate_period_returns(
     - `period_dates`: dates strictly after the current decision date and up to
       the next decision date.
     - `starting_weights`: portfolio weights immediately after the rebalance.
-    - `turnover_cost`: one-off cost applied on the first day in the period.
+    - `initial_turnover`: one-off turnover applied on the first day in the
+      period for the scheduled monthly TAA rebalance.
+    - `initial_turnover_cost`: one-off transaction cost paired with
+      `initial_turnover`.
+    - `available_assets`: full-universe 1/0 availability mask fixed at the
+      decision date for the current OOS segment.
     - `fold_id`: active fold identifier.
     - `decision_date`: monthly decision date that produced `starting_weights`.
     - `regime_label`: regime label active at the decision date.
 
     Outputs:
-    - Tuple `(period_returns_df, end_weights)` where `end_weights` are the
-      drifted holdings at the end of the segment.
+    - Tuple `(period_returns_df, holdings_df, end_weights)` where
+      `holdings_df` stores realized start-of-day holdings and `end_weights`
+      are the post-close holdings carried into the next segment.
 
     Citation:
     - Whitmore Task 6 walk-forward specification.
@@ -446,11 +467,27 @@ def simulate_period_returns(
 
     current_weights = starting_weights.reindex(ALL_SAA).fillna(0.0).copy()
     rows: list[dict[str, object]] = []
+    holdings_rows: list[pd.Series] = []
     for offset, date in enumerate(period_dates):
+        holdings_rows.append(current_weights.rename(date))
         gross_vector = np.exp(returns.loc[date].reindex(ALL_SAA).fillna(0.0))
         gross_return = float((current_weights * (gross_vector - 1.0)).sum())
-        cost = turnover_cost if offset == 0 else 0.0
-        portfolio_return = gross_return - cost
+        turnover = initial_turnover if offset == 0 else 0.0
+        turnover_cost = initial_turnover_cost if offset == 0 else 0.0
+        scheduled_rebalance_flag = int(offset == 0)
+        compliance_rebalance_flag = 0
+
+        post_move_value = current_weights * gross_vector
+        denominator = float(post_move_value.sum())
+        post_move_weights = post_move_value / denominator if denominator > 0 else current_weights.copy()
+
+        current_weights = post_move_weights.copy()
+        if violates_taa_constraints(current_weights, available_assets):
+            projected = project_taa_weights_to_compliance(current_weights, available_assets)
+            turnover += float((projected - current_weights).abs().sum())
+            turnover_cost += COST_PER_TURNOVER * turnover
+            current_weights = projected
+            compliance_rebalance_flag = 1
 
         rows.append(
             {
@@ -459,19 +496,31 @@ def simulate_period_returns(
                 "decision_date": decision_date,
                 "regime": regime_label,
                 "gross_return": gross_return,
-                "turnover_cost": cost,
-                "portfolio_return": portfolio_return,
+                "turnover": turnover,
+                "turnover_cost": turnover_cost,
+                "portfolio_return": gross_return - turnover_cost,
+                "scheduled_rebalance_flag": scheduled_rebalance_flag,
+                "compliance_rebalance_flag": compliance_rebalance_flag,
+                "rebalance_flag": int(scheduled_rebalance_flag or compliance_rebalance_flag),
             }
         )
 
-        post_move_value = current_weights * gross_vector
-        denominator = float(post_move_value.sum())
-        current_weights = post_move_value / denominator if denominator > 0 else current_weights.copy()
-
     period_df = pd.DataFrame(rows).set_index("date") if rows else pd.DataFrame(
-        columns=["fold_id", "decision_date", "regime", "gross_return", "turnover_cost", "portfolio_return"]
+        columns=[
+            "fold_id",
+            "decision_date",
+            "regime",
+            "gross_return",
+            "turnover",
+            "turnover_cost",
+            "portfolio_return",
+            "scheduled_rebalance_flag",
+            "compliance_rebalance_flag",
+            "rebalance_flag",
+        ]
     )
-    return period_df, current_weights
+    holdings_df = pd.DataFrame(holdings_rows).astype(float) if holdings_rows else pd.DataFrame(columns=ALL_SAA, dtype=float)
+    return period_df, holdings_df, current_weights
 
 
 def run_walkforward(
@@ -502,7 +551,7 @@ def run_walkforward(
 
     Outputs:
     - Dictionary containing exported dataframes:
-      `folds`, `oos_returns`, `oos_weights`, `oos_regimes`,
+      `folds`, `oos_returns`, `oos_weights`, `oos_holdings`, `oos_regimes`,
       `guardrail_switches`.
 
     Citation:
@@ -588,6 +637,7 @@ def run_walkforward(
     weight_rows: list[pd.Series] = []
     regime_rows: list[dict[str, object]] = []
     return_frames: list[pd.DataFrame] = []
+    holdings_frames: list[pd.DataFrame] = []
     guardrail_switch_rows: list[dict[str, object]] = []
     current_guardrail_multiplier = 1.0
     breach_log_path = output_dir / "breaches.log"
@@ -744,17 +794,21 @@ def run_walkforward(
             next_decision,
             pd.Timestamp(end),
         )
-        period_returns, ending_weights = simulate_period_returns(
+        period_returns, period_holdings, ending_weights = simulate_period_returns(
             returns=returns.loc[:, ALL_SAA],
             period_dates=period_dates,
             starting_weights=solve_result.weights,
-            turnover_cost=solve_result.turnover_cost,
+            initial_turnover=solve_result.turnover,
+            initial_turnover_cost=solve_result.turnover_cost,
+            available_assets=available_assets,
             fold_id=fold_spec.fold_id,
             decision_date=pd.Timestamp(decision_date),
             regime_label=signal_bundle.regime_label,
         )
         if not period_returns.empty:
             return_frames.append(period_returns)
+        if not period_holdings.empty:
+            holdings_frames.append(period_holdings)
 
         previous_weights = ending_weights
 
@@ -763,13 +817,27 @@ def run_walkforward(
     regimes_df = pd.DataFrame(regime_rows).set_index("date")
     guardrail_switches_df = pd.DataFrame(guardrail_switch_rows, columns=["date", "trailing_dd", "action"])
     oos_returns_df = pd.concat(return_frames).sort_index() if return_frames else pd.DataFrame(
-        columns=["fold_id", "decision_date", "regime", "gross_return", "turnover_cost", "portfolio_return"]
+        columns=[
+            "fold_id",
+            "decision_date",
+            "regime",
+            "gross_return",
+            "turnover",
+            "turnover_cost",
+            "portfolio_return",
+            "scheduled_rebalance_flag",
+            "compliance_rebalance_flag",
+            "rebalance_flag",
+        ]
     )
+    oos_holdings_df = pd.concat(holdings_frames).sort_index() if holdings_frames else pd.DataFrame(columns=ALL_SAA, dtype=float)
+    oos_holdings_df.index.name = "date"
 
     output_dir.mkdir(parents=True, exist_ok=True)
     folds_df.to_csv(output_dir / WALKFORWARD_FOLDS_FILENAME, index=False)
     oos_returns_df.to_csv(output_dir / OOS_RETURNS_FILENAME)
     weights_df.to_csv(output_dir / OOS_WEIGHTS_FILENAME)
+    oos_holdings_df.to_csv(output_dir / OOS_HOLDINGS_FILENAME)
     regimes_df.to_csv(output_dir / OOS_REGIMES_FILENAME)
     guardrail_switches_df.to_csv(output_dir / GUARDRAIL_SWITCHES_FILENAME, index=False)
 
@@ -777,6 +845,7 @@ def run_walkforward(
         "folds": folds_df,
         "oos_returns": oos_returns_df,
         "oos_weights": weights_df,
+        "oos_holdings": oos_holdings_df,
         "oos_regimes": regimes_df,
         "guardrail_switches": guardrail_switches_df,
     }
@@ -843,7 +912,7 @@ def main() -> None:
     print(
         "Walk-forward outputs written to "
         f"{output_dir / WALKFORWARD_FOLDS_FILENAME}, {output_dir / OOS_RETURNS_FILENAME}, "
-        f"{output_dir / OOS_WEIGHTS_FILENAME}, {output_dir / OOS_REGIMES_FILENAME}, "
+        f"{output_dir / OOS_WEIGHTS_FILENAME}, {output_dir / OOS_HOLDINGS_FILENAME}, {output_dir / OOS_REGIMES_FILENAME}, "
         f"and {output_dir / GUARDRAIL_SWITCHES_FILENAME}. "
         f"OOS daily rows: {len(artifacts['oos_returns'])}"
     )

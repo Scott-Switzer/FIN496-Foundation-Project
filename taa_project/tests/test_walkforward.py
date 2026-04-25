@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -9,7 +10,9 @@ from taa_project.backtest import walkforward as walkforward_module
 from taa_project.backtest.walkforward import (
     build_monthly_decision_dates,
     build_walkforward_folds,
+    estimate_taa_covariance,
     run_walkforward,
+    simulate_period_returns,
 )
 from taa_project.config import ALL_SAA
 from taa_project.data_loader import load_prices
@@ -75,6 +78,7 @@ def test_run_walkforward_smoke(monkeypatch, tmp_path) -> None:
     assert not artifacts["folds"].empty
     assert not artifacts["oos_returns"].empty
     assert not artifacts["oos_weights"].empty
+    assert not artifacts["oos_holdings"].empty
     assert not artifacts["oos_regimes"].empty
 
 
@@ -153,3 +157,48 @@ def test_run_walkforward_uses_regime_specific_vol_budget(monkeypatch, tmp_path) 
 
     assert captured
     assert set(captured) == {0.05}
+
+
+def test_estimate_taa_covariance_annualizes_historical_variance() -> None:
+    index = pd.bdate_range("2024-01-01", periods=80)
+    returns = pd.DataFrame(0.0, index=index, columns=ALL_SAA, dtype=float)
+    returns["SPXT"] = np.tile([0.03, -0.03], len(index) // 2)
+    covariance = estimate_taa_covariance(returns, index[-1], lookback_days=len(index), min_observations=2)
+
+    expected = float(returns["SPXT"].var() * 252.0)
+    assert np.isclose(float(covariance.loc["SPXT", "SPXT"]), expected, rtol=1e-6)
+
+
+def test_simulate_period_returns_executes_compliance_rebalance_after_drift_breach() -> None:
+    period_dates = pd.bdate_range("2024-02-01", periods=2)
+    returns = pd.DataFrame(0.0, index=period_dates, columns=ALL_SAA, dtype=float)
+    returns.loc[period_dates[0], "BITCOIN"] = np.log(2.5)
+
+    starting_weights = pd.Series(0.0, index=ALL_SAA, dtype=float)
+    starting_weights["SPXT"] = 0.40
+    starting_weights["LBUSTRUU"] = 0.10
+    starting_weights["BROAD_TIPS"] = 0.05
+    starting_weights["B3REITT"] = 0.10
+    starting_weights["XAU"] = 0.15
+    starting_weights["SILVER_FUT"] = 0.05
+    starting_weights["NIKKEI225"] = 0.05
+    starting_weights["BITCOIN"] = 0.05
+    starting_weights["CHF_FRANC"] = 0.05
+
+    available = pd.Series(1.0, index=ALL_SAA, dtype=float)
+    period_returns, holdings, ending_weights = simulate_period_returns(
+        returns=returns,
+        period_dates=period_dates,
+        starting_weights=starting_weights,
+        initial_turnover=0.0,
+        initial_turnover_cost=0.0,
+        available_assets=available,
+        fold_id=1,
+        decision_date=pd.Timestamp("2024-01-31"),
+        regime_label="risk_on",
+    )
+
+    assert int(period_returns.loc[period_dates[0], "compliance_rebalance_flag"]) == 1
+    assert holdings.loc[period_dates[0], "BITCOIN"] == pytest.approx(0.05)
+    assert holdings.loc[period_dates[1], "BITCOIN"] <= 0.10 + 1e-8
+    assert ending_weights["BITCOIN"] <= 0.10 + 1e-8

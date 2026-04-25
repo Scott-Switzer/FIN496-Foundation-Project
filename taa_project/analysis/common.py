@@ -115,6 +115,7 @@ def load_core_outputs(output_dir: Path = OUTPUT_DIR) -> dict[str, pd.DataFrame]:
     - Safe. This is an ex-post analysis loader.
     """
 
+    oos_holdings_path = output_dir / "oos_holdings.csv"
     return {
         "saa_weights": load_output_csv(output_dir / "saa_weights.csv"),
         "saa_returns": pd.read_csv(output_dir / "saa_returns.csv", parse_dates=["Date"]).set_index("Date"),
@@ -124,6 +125,11 @@ def load_core_outputs(output_dir: Path = OUTPUT_DIR) -> dict[str, pd.DataFrame]:
         "bm2_returns": pd.read_csv(output_dir / "bm2_returns.csv", parse_dates=["Date"]).set_index("Date"),
         "oos_weights": pd.read_csv(output_dir / "oos_weights.csv", parse_dates=["decision_date"]).set_index("decision_date"),
         "oos_returns": pd.read_csv(output_dir / "oos_returns.csv", parse_dates=["date", "decision_date"]).set_index("date"),
+        "oos_holdings": (
+            pd.read_csv(oos_holdings_path, parse_dates=["date"]).set_index("date")
+            if oos_holdings_path.exists()
+            else pd.DataFrame(columns=ALL_SAA, dtype=float)
+        ),
         "oos_regimes": pd.read_csv(output_dir / "oos_regimes.csv", parse_dates=["date"]).set_index("date"),
     }
 

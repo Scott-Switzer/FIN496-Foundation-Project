@@ -9,11 +9,11 @@ import pandas as pd
 
 from taa_project.analysis.common import deflated_sharpe_ratio, disclosed_trial_count, sortino_ratio
 from taa_project.analysis.reporting import _ips_compliance_rows
-from taa_project.config import ALL_SAA, SAA_BANDS, TAA_BANDS
+from taa_project.config import ALL_TAA, OPPORTUNISTIC, SAA_BANDS, TAA_AUDIT_BANDS, TAA_BANDS
 
 
 def _holdings_frame(index: pd.DatetimeIndex, **weights: float) -> pd.DataFrame:
-    row = pd.Series(0.0, index=ALL_SAA, dtype=float)
+    row = pd.Series(0.0, index=ALL_TAA, dtype=float)
     for key, value in weights.items():
         row[key] = value
     return pd.DataFrame([row] * len(index), index=index)
@@ -24,7 +24,7 @@ def _returns(index: pd.DatetimeIndex, value: float = 0.0005) -> pd.Series:
 
 
 def _inception_dates(default: str = "2000-01-01", **overrides: str) -> pd.Series:
-    dates = {asset: pd.Timestamp(default) for asset in ALL_SAA}
+    dates = {asset: pd.Timestamp(default) for asset in ALL_TAA}
     dates.update({asset: pd.Timestamp(value) for asset, value in overrides.items()})
     return pd.Series(dates)
 
@@ -150,6 +150,32 @@ def test_ips_compliance_rows_flags_rolling_vol_breach() -> None:
     )
 
     assert any(row["rule"] == "rolling_vol_21d" for row in violations)
+
+
+def test_ips_compliance_rows_accepts_opportunistic_hedge_sleeve() -> None:
+    index = pd.bdate_range("2024-02-01", periods=63)
+    holdings = _holdings_frame(
+        index,
+        SPXT=0.15,
+        LBUSTRUU=0.33,
+        BROAD_TIPS=0.24,
+        CHF_FRANC=0.145,
+        BCEE1T_EUROAREA=0.045,
+        I02923JP_JAPAN_BOND=0.045,
+        LBEATREU_EUROBONDAGG=0.045,
+    )
+
+    violations = _ips_compliance_rows(
+        "SAA+TAA",
+        holdings=holdings,
+        returns=_returns(index),
+        decision_dates=pd.DatetimeIndex([pd.Timestamp("2024-01-31")]),
+        inception_dates=_inception_dates(),
+        band_map=TAA_AUDIT_BANDS,
+    )
+
+    assert violations == []
+    assert holdings.loc[:, OPPORTUNISTIC].sum(axis=1).max() <= 0.15
 
 
 def test_ips_compliance_rows_flags_drawdown_breach() -> None:

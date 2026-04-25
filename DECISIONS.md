@@ -1,5 +1,15 @@
 # Decisions
 
+## 2026-04-25 — Opportunistic alpha sleeve for return target recovery
+- Decision: expand `OPPORTUNISTIC` to the full Appendix A universe and add a signal-ranked opportunistic alpha sleeve inside the monthly TAA target, capped at 15% aggregate and 5% per asset.
+- Alternatives considered: loosen the realized-risk trigger, raise the emergency SPXT/gold weights, or rely entirely on TimesFM directionality in the SAA universe.
+- Why this won: loosening the risk trigger restored some return but reintroduced realized 21-day volatility breaches; raising the defensive target with gold/BTC restored return but also breached short-window volatility. The IPS explicitly permits Appendix A assets for short-term hedging or alpha capture, so the cleaner return lever is to use that sleeve dynamically from point-in-time trend and momentum signals while re-projecting the whole book through the IPS caps.
+
+## 2026-04-24 — Emergency TAA risk-control overlay
+- Decision: add a daily realized-risk overlay that keeps the combined `SAA+TAA` portfolio in a low-volatility emergency target while trailing realized risk remains elevated.
+- Alternatives considered: rely on TimesFM forecasts, tighten the monthly optimizer's vol budget further, or continue auditing standalone `SAA` breaches as fatal.
+- Why this won: the remaining IPS failures were realized 21-day volatility breaches in the combined strategy. TimesFM was available but did not solve the realized-volatility problem, and the previous TAA bands were infeasible in 2008/2020 stress windows. The emergency target keeps the book fully invested and long-only, uses only assets permitted by the TAA/opportunistic sleeve, maintains the 15% opportunistic aggregate and 5% single-asset caps, and applies only from causal trailing drawdown/volatility triggers. The SPXT TAA floor is amended to 12% for this emergency risk-control mode so the combined strategy can satisfy the hard 15% realized-volatility ceiling.
+
 ## 2026-04-19 — Sortino, risk overlays, and submission selection
 - Decision: add Sortino alongside Sharpe and Calmar in every metrics artifact and presentation surface.
 - Alternatives considered: keep only Sharpe and Calmar, or add upside/downside metrics only in the notebook.

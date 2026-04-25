@@ -135,6 +135,97 @@ def test_run_pipeline_raises_when_timesfm_requested_but_unavailable(monkeypatch,
         )
 
 
+def test_run_pipeline_allows_standalone_saa_compliance_rows(monkeypatch, tmp_path) -> None:
+    def fake_run_data_audit(output_dir):
+        return {}
+
+    def fake_build_saa_portfolio(start_date, end_date, output_dir, method="min_variance"):
+        return None
+
+    def fake_build_benchmarks(start_date, end_date, output_dir):
+        return None
+
+    def fake_run_walkforward(start, end, folds, use_timesfm, vol_budget, output_dir, ensemble_config=None):
+        return {}
+
+    def fake_build_attribution(start, end, folds, use_timesfm, vol_budget, output_dir, ensemble_config=None):
+        return {}
+
+    def fake_build_reporting(start, end, folds, use_timesfm, vol_budget, output_dir, figure_dir, saa_method="min_variance", ensemble_config=None):
+        return {
+            "ips_compliance": pd.DataFrame(
+                [{"portfolio": "SAA", "date": "2008-10-01", "rule": "max_drawdown", "value": -0.30, "bound": -0.25}]
+            ),
+            "metrics": pd.DataFrame([{"portfolio": "SAA+TAA"}]),
+        }
+
+    def fake_build_notebook(output_dir, notebook_dir):
+        path = notebook_dir / "diagnostics.ipynb"
+        path.write_text("{}", encoding="utf-8")
+        return path
+
+    def fake_build_report(output_dir, figure_dir, report_dir):
+        md = report_dir / "report.md"
+        pdf = report_dir / "report.pdf"
+        md.write_text("# report", encoding="utf-8")
+        pdf.write_text("pdf", encoding="utf-8")
+        return md, pdf
+
+    def fake_build_deck(output_dir, figure_dir, report_dir):
+        pdf = report_dir / "deck.pdf"
+        pdf.write_text("pdf", encoding="utf-8")
+        return pdf
+
+    monkeypatch.setattr(pipeline_main, "run_data_audit", fake_run_data_audit)
+    monkeypatch.setattr(pipeline_main, "build_saa_portfolio", fake_build_saa_portfolio)
+    monkeypatch.setattr(pipeline_main, "build_benchmarks", fake_build_benchmarks)
+    monkeypatch.setattr(pipeline_main, "run_walkforward", fake_run_walkforward)
+    monkeypatch.setattr(pipeline_main, "build_attribution", fake_build_attribution)
+    monkeypatch.setattr(pipeline_main, "build_reporting", fake_build_reporting)
+    monkeypatch.setattr(pipeline_main, "build_diagnostics_notebook", fake_build_notebook)
+    monkeypatch.setattr(pipeline_main, "build_report", fake_build_report)
+    monkeypatch.setattr(pipeline_main, "build_deck", fake_build_deck)
+    monkeypatch.setattr(pipeline_main, "TRIAL_LEDGER_CSV", tmp_path / "TRIAL_LEDGER.csv")
+
+    artifacts = pipeline_main.run_pipeline(
+        output_dir=tmp_path / "outputs",
+        figure_dir=tmp_path / "figures",
+        report_dir=tmp_path / "reports",
+        notebook_dir=tmp_path / "notebooks",
+    )
+
+    assert Path(artifacts["notebook_path"]).exists()
+
+
+def test_run_pipeline_raises_on_strategy_compliance_rows(monkeypatch, tmp_path) -> None:
+    def noop(*args, **kwargs):
+        return {}
+
+    def fake_build_reporting(start, end, folds, use_timesfm, vol_budget, output_dir, figure_dir, saa_method="min_variance", ensemble_config=None):
+        return {
+            "ips_compliance": pd.DataFrame(
+                [{"portfolio": "SAA+TAA", "date": "2008-10-01", "rule": "rolling_vol_21d", "value": 0.16, "bound": 0.15}]
+            ),
+            "metrics": pd.DataFrame([{"portfolio": "SAA+TAA"}]),
+        }
+
+    monkeypatch.setattr(pipeline_main, "run_data_audit", noop)
+    monkeypatch.setattr(pipeline_main, "build_saa_portfolio", noop)
+    monkeypatch.setattr(pipeline_main, "build_benchmarks", noop)
+    monkeypatch.setattr(pipeline_main, "run_walkforward", noop)
+    monkeypatch.setattr(pipeline_main, "build_attribution", noop)
+    monkeypatch.setattr(pipeline_main, "build_reporting", fake_build_reporting)
+    monkeypatch.setattr(pipeline_main, "TRIAL_LEDGER_CSV", tmp_path / "TRIAL_LEDGER.csv")
+
+    with pytest.raises(RuntimeError, match="SAA\\+TAA IPS compliance audit failed"):
+        pipeline_main.run_pipeline(
+            output_dir=tmp_path / "outputs",
+            figure_dir=tmp_path / "figures",
+            report_dir=tmp_path / "reports",
+            notebook_dir=tmp_path / "notebooks",
+        )
+
+
 def test_run_pipeline_raises_on_invalid_vol_budget(tmp_path) -> None:
     with pytest.raises(ValueError, match="vol_budget"):
         pipeline_main.run_pipeline(

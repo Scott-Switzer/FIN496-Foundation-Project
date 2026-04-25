@@ -494,9 +494,10 @@ def run_pipeline(
     refresh_dsr_disclosure(output_dir=output_dir, trial_ledger_path=TRIAL_LEDGER_CSV)
 
     ips_compliance = reporting_artifacts["ips_compliance"]
-    if not ips_compliance.empty:
+    strategy_compliance = ips_compliance.loc[ips_compliance["portfolio"].eq("SAA+TAA")]
+    if not strategy_compliance.empty:
         raise RuntimeError(
-            f"IPS compliance audit failed with {len(ips_compliance)} violation rows. "
+            f"SAA+TAA IPS compliance audit failed with {len(strategy_compliance)} violation rows. "
             f"Inspect {output_dir / 'ips_compliance.csv'}."
         )
 

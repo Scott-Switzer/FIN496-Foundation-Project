@@ -13,8 +13,9 @@ from taa_project.backtest.walkforward import (
     estimate_taa_covariance,
     run_walkforward,
     simulate_period_returns,
+    _defensive_taa_target,
 )
-from taa_project.config import ALL_SAA
+from taa_project.config import ALL_SAA, ALL_TAA, OPPORTUNISTIC
 from taa_project.data_loader import load_prices
 from taa_project.optimizer.cvxpy_opt import EnsembleConfig, OptimizationResult
 from taa_project.signals import SignalBundle
@@ -167,6 +168,17 @@ def test_estimate_taa_covariance_annualizes_historical_variance() -> None:
 
     expected = float(returns["SPXT"].var() * 252.0)
     assert np.isclose(float(covariance.loc["SPXT", "SPXT"]), expected, rtol=1e-6)
+
+
+def test_defensive_taa_target_uses_opportunistic_hedges() -> None:
+    available = pd.Series(1.0, index=ALL_TAA, dtype=float)
+
+    target = _defensive_taa_target(available)
+
+    assert target.sum() == pytest.approx(1.0)
+    assert target["SPXT"] == pytest.approx(0.12)
+    assert target.loc[OPPORTUNISTIC].sum() > 0.0
+    assert target.loc[OPPORTUNISTIC].max() <= 0.05 + 1e-8
 
 
 def test_simulate_period_returns_executes_compliance_rebalance_after_drift_breach() -> None:

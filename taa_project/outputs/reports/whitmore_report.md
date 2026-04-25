@@ -1,13 +1,13 @@
 # Whitmore Capital Partners SAA/TAA Report
 
 ## Executive Summary
-- The final implementation uses constrained risk parity for SAA and a monthly cvxpy TAA overlay driven by HMM regime, Faber trend, Antonacci-style ADM, and an optional TimesFM layer. This report reflects run mode `--timesfm`. [Sources: `taa_project/saa/build_saa.py`, `taa_project/backtest/walkforward.py`, `taa_project/analysis/reporting.py`]
-- Net annualized return is 5.70% for `SAA+TAA` versus 8.83% for `SAA` and 7.86% for `BM2`. [Source: `taa_project/outputs/portfolio_metrics.csv`]
-- Net Sharpe improves by 0.11 versus `BM2`, while the Deflated Sharpe Ratio is 0.842 across 257 disclosed trials in `TRIAL_LEDGER.csv`. [Sources: `taa_project/outputs/portfolio_metrics.csv`, `taa_project/outputs/dsr_summary.csv`, `TRIAL_LEDGER.csv`]
-- Daily IPS audit produced 0 violations across the strategy target schedules. [Source: `taa_project/outputs/ips_compliance.csv`]
+- The final implementation uses the configured SAA allocator for this run together with a monthly cvxpy TAA overlay driven by HMM regime, Faber trend, Antonacci-style ADM, and an optional TimesFM layer. This report reflects run mode `--no-timesfm`. [Sources: `taa_project/saa/build_saa.py`, `taa_project/backtest/walkforward.py`, `taa_project/analysis/reporting.py`]
+- Net annualized return is 3.75% for `SAA+TAA` versus 6.36% for `SAA` and 7.86% for `BM2`. [Source: `taa_project/outputs/portfolio_metrics.csv`]
+- Net Sharpe improves by -0.19 versus `BM2`, while the Deflated Sharpe Ratio is 0.194 across 602 disclosed trials in `TRIAL_LEDGER.csv`. [Sources: `taa_project/outputs/portfolio_metrics.csv`, `taa_project/outputs/dsr_summary.csv`, `TRIAL_LEDGER.csv`]
+- Daily IPS audit produced 1065 violations across the strategy target schedules. [Source: `taa_project/outputs/ips_compliance.csv`]
 
 ## SAA Construction and IPS Compliance
-- Risk parity was selected over inverse volatility, minimum variance, maximum diversification, and mean-variance because it cleared the 8% return objective while staying below the 15% volatility ceiling without relying on fragile expected-return estimates; minimum variance was safer on volatility but undershot the return mandate. [Sources: `taa_project/saa/build_saa.py`, `taa_project/outputs/saa_method_comparison.csv`]
+- The strategic allocator is chosen from the SAA method comparison table, balancing IPS compliance and risk/return trade-offs across inverse volatility, minimum variance, risk parity, maximum diversification, mean-variance, and the optional HRP variant. [Sources: `taa_project/saa/build_saa.py`, `taa_project/outputs/saa_method_comparison.csv`]
 - The amended Non-Traditional cap of 20% from Resolution 2026-02 is applied as binding policy throughout the pipeline. [Sources: `IPS.md`, `Guidelines.md`, `taa_project/config.py`]
 
 ## TAA Signal Design
@@ -26,8 +26,8 @@
 - All macro inputs are lagged by one business day before signal use, and no asset-price gaps are forward-filled or backward-filled. [Sources: `taa_project/data_audit.py`, `taa_project/outputs/data_audit_report.md`]
 
 ## Performance Results
-- `SAA+TAA` delivers 5.70% annualized return, 5.14% annualized volatility, and -16.59% max drawdown. [Source: `taa_project/outputs/portfolio_metrics.csv`]
-- Relative to `SAA`, the TAA overlay changes annualized return by -3.13% and cost drag by 0.02% per year. [Source: `taa_project/outputs/portfolio_metrics.csv`]
+- `SAA+TAA` delivers 3.75% annualized return, 4.14% annualized volatility, and -13.81% max drawdown. [Source: `taa_project/outputs/portfolio_metrics.csv`]
+- Relative to `SAA`, the TAA overlay changes annualized return by -2.61% and cost drag by 0.59% per year. [Source: `taa_project/outputs/portfolio_metrics.csv`]
 
 ## Contribution Analysis
 - Active-return decomposition is reported separately for `SAA vs BM2`, `TAA vs SAA`, `TAA vs BM1`, and `TAA vs BM2`. [Sources: `taa_project/outputs/attribution_saa_vs_bm2.csv`, `taa_project/outputs/attribution_taa_vs_saa.csv`]

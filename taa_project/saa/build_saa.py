@@ -64,6 +64,26 @@ DEFAULT_END = "2025-12-31"
 LOOKBACK_DAYS = 756
 MIN_COV_OBSERVATIONS = 63
 DIAGONAL_FLOOR = 1e-6
+RISK_CONTROL_DD_TRIGGER = -0.10
+RISK_CONTROL_DD_RELEASE = -0.04
+RISK_CONTROL_VOL_TRIGGER = 0.12
+RISK_CONTROL_VOL_RELEASE = 0.09
+RISK_CONTROL_VOL_WINDOWS = (21, 63)
+TRADING_DAYS_PER_YEAR = 252
+
+DEFENSIVE_PREFERENCE = {
+    "LBUSTRUU": 1.00,
+    "BROAD_TIPS": 0.95,
+    "CHF_FRANC": 0.85,
+    "XAU": 0.25,
+    "FTSE100": 0.15,
+    "SPXT": 0.05,
+    "B3REITT": 0.05,
+    "NIKKEI225": 0.04,
+    "CSI300_CHINA": 0.04,
+    "SILVER_FUT": 0.02,
+    "BITCOIN": 0.00,
+}
 
 
 @dataclass(frozen=True)
@@ -540,6 +560,52 @@ def project_drifted_weights_to_compliance(
     return full_weights
 
 
+def defensive_saa_target(eligible_assets: list[str]) -> pd.Series:
+    """Return the static defensive target used by the SAA risk overlay."""
+
+    lower_bounds, upper_bounds = bounds_for_assets(eligible_assets)
+    preference = pd.Series(
+        {asset: DEFENSIVE_PREFERENCE.get(asset, 0.0) for asset in eligible_assets},
+        dtype=float,
+    )
+    projected = project_weights_to_feasible_set(preference, lower_bounds, upper_bounds, eligible_assets)
+    full_weights = pd.Series(0.0, index=ALL_SAA, dtype=float)
+    full_weights.loc[eligible_assets] = projected
+    return full_weights
+
+
+def _realized_risk_state(realized_returns: list[float]) -> tuple[float, float]:
+    """Compute prior-close drawdown and rolling volatility."""
+
+    if not realized_returns:
+        return 0.0, 0.0
+
+    returns_series = pd.Series(realized_returns, dtype=float)
+    wealth = (1.0 + returns_series).cumprod()
+    current_drawdown = float(wealth.iloc[-1] / wealth.cummax().iloc[-1] - 1.0)
+
+    realized_vol = 0.0
+    for window in RISK_CONTROL_VOL_WINDOWS:
+        if len(returns_series) >= window:
+            realized_vol = max(
+                realized_vol,
+                float(returns_series.tail(window).std(ddof=0) * np.sqrt(TRADING_DAYS_PER_YEAR)),
+            )
+    return current_drawdown, realized_vol
+
+
+def _risk_control_should_be_defensive(
+    currently_defensive: bool,
+    realized_returns: list[float],
+) -> bool:
+    """State machine for the causal SAA realized-risk overlay."""
+
+    current_drawdown, realized_vol = _realized_risk_state(realized_returns)
+    if currently_defensive:
+        return not (current_drawdown >= RISK_CONTROL_DD_RELEASE and realized_vol <= RISK_CONTROL_VOL_RELEASE)
+    return current_drawdown <= RISK_CONTROL_DD_TRIGGER or realized_vol >= RISK_CONTROL_VOL_TRIGGER
+
+
 def find_first_feasible_start_date(prices: pd.DataFrame, start_date: str) -> pd.Timestamp:
     """Find the first feasible inception date for the SAA portfolio.
 
@@ -726,9 +792,13 @@ def simulate_portfolio(
     """
 
     calendar = returns.loc[start_date:end_date].index
-    current_target = rebalance_targets[start_date].copy()
+    current_policy_target = rebalance_targets[start_date].copy()
+    current_target = current_policy_target.copy()
     current_holdings = current_target.copy()
     current_active_assets = list(rebalance_active_assets[start_date])
+    defensive_target_cache: dict[tuple[str, ...], pd.Series] = {}
+    risk_control_active = False
+    realized_returns: list[float] = []
     weight_rows: list[pd.Series] = [current_target.rename(start_date)]
     return_rows = [
         {
@@ -739,43 +809,69 @@ def simulate_portfolio(
             "turnover_cost": 0.0,
             "scheduled_rebalance_flag": 1,
             "compliance_rebalance_flag": 0,
+            "risk_rebalance_flag": 0,
             "rebalance_flag": 1,
         }
     ]
 
     for date in calendar[1:]:
+        turnover = 0.0
+        turnover_cost = 0.0
+        rebalance_flag = 0
+        scheduled_rebalance_flag = 0
+        compliance_rebalance_flag = 0
+        risk_rebalance_flag = 0
+
+        next_risk_control_active = _risk_control_should_be_defensive(risk_control_active, realized_returns)
+        if next_risk_control_active != risk_control_active:
+            if next_risk_control_active:
+                active_key = tuple(current_active_assets)
+                if active_key not in defensive_target_cache:
+                    defensive_target_cache[active_key] = defensive_saa_target(current_active_assets)
+                target = defensive_target_cache[active_key]
+            else:
+                target = current_policy_target
+            turnover += float((target - current_holdings).abs().sum())
+            current_target = target.copy()
+            current_holdings = target.copy()
+            risk_control_active = next_risk_control_active
+            risk_rebalance_flag = 1
+            rebalance_flag = 1
+
         gross_vector = np.exp(returns.loc[date, ALL_SAA].fillna(0.0))
         gross_return = float((current_holdings * (gross_vector - 1.0)).sum())
         post_move_value = current_holdings * gross_vector
         denominator = float(post_move_value.sum())
         post_move_holdings = post_move_value / denominator if denominator > 0 else current_holdings.copy()
 
-        turnover = 0.0
-        turnover_cost = 0.0
-        rebalance_flag = 0
-        scheduled_rebalance_flag = 0
-        compliance_rebalance_flag = 0
         if date in rebalance_targets:
-            target = rebalance_targets[date]
-            turnover = float((target - post_move_holdings).abs().sum())
-            turnover_cost = COST_PER_TURNOVER * turnover
+            current_policy_target = rebalance_targets[date].copy()
+            current_active_assets = list(rebalance_active_assets[date])
+            if risk_control_active:
+                active_key = tuple(current_active_assets)
+                if active_key not in defensive_target_cache:
+                    defensive_target_cache[active_key] = defensive_saa_target(current_active_assets)
+                target = defensive_target_cache[active_key]
+            else:
+                target = current_policy_target
+            turnover += float((target - post_move_holdings).abs().sum())
             current_target = target.copy()
             current_holdings = target.copy()
-            current_active_assets = list(rebalance_active_assets[date])
             scheduled_rebalance_flag = 1
             rebalance_flag = 1
         else:
             current_holdings = post_move_holdings.copy()
             if violates_saa_constraints(current_holdings, current_active_assets):
                 projected = project_drifted_weights_to_compliance(current_holdings, current_active_assets)
-                turnover = float((projected - current_holdings).abs().sum())
-                turnover_cost = COST_PER_TURNOVER * turnover
+                turnover += float((projected - current_holdings).abs().sum())
                 current_target = projected.copy()
                 current_holdings = projected.copy()
                 compliance_rebalance_flag = 1
                 rebalance_flag = 1
 
+        turnover_cost = COST_PER_TURNOVER * turnover
         portfolio_return = gross_return - turnover_cost
+        realized_returns.append(portfolio_return)
         return_rows.append(
             {
                 "Date": date,
@@ -785,6 +881,7 @@ def simulate_portfolio(
                 "turnover_cost": turnover_cost,
                 "scheduled_rebalance_flag": scheduled_rebalance_flag,
                 "compliance_rebalance_flag": compliance_rebalance_flag,
+                "risk_rebalance_flag": risk_rebalance_flag,
                 "rebalance_flag": rebalance_flag,
             }
         )

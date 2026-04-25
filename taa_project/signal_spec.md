@@ -26,12 +26,13 @@ For each rebalance date t (month-end, or an intra-month date on HMM regime flip)
 
 1. Build macro feature matrix `X_t = {VIXCLS, BAMLH0A0HYM2, T10Y3M, NFCI, +derived}` using data ≤ t.
 2. Refit 3-state Gaussian HMM on expanding-window `X_{:t}` → regime label ∈ {risk_on, neutral, stress}.
-3. For each SAA sleeve, compute `trend_t` (tanh-scaled distance from 200-day SMA normalized by 60-day vol).
-4. For each bucket (equity, fixed-income, real, non-trad), compute `momo_t` = cross-sectional rank of ADM score.
+3. For each SAA sleeve and Appendix A opportunistic asset, compute `trend_t` (tanh-scaled distance from 200-day SMA normalized by 60-day vol).
+4. For each bucket (equity, fixed-income, real, non-trad, opportunistic sub-sleeves), compute `momo_t` = cross-sectional rank of ADM score.
 5. (Optional) Call TimesFM 2.5 on each sleeve's log-return series with context 1024, horizon 21 → `mu_fcst`, `sigma_fcst`.
 6. Ensemble: `mu_asset = 0.40·regime_tilt·10% + 0.20·trend·6% + 0.20·momo·6% + 0.20·mu_fcst`.
 7. Covariance = 0.7·sample(252-day) + 0.3·diag, with TimesFM variances overriding the diagonal when available.
 8. Solve cvxpy problem: `max  μ'w − 3·w'Σw − 5bps·‖w−w_prev‖₁`  s.t. all IPS §6-7 constraints.
+9. If Appendix A assets have positive point-in-time trend/momentum scores, carve out a capped opportunistic alpha sleeve from the monthly TAA target: max 15% aggregate and max 5% per name, then re-project the full target through all IPS aggregate caps.
 
 ## Walk-forward validation plan
 

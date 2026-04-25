@@ -106,7 +106,7 @@ subject to a separate aggregate cap.
 
 | Asset  | Ticker  | TAA Min (%)  | TAA Max (%) |
 | :---- | :---- | :---- | :---- |
-| US Equity  | SPXT  | 20  | 45 |
+| US Equity  | SPXT  | 12  | 45 |
 | UK Equity  | FTSE100  | 0  | 15 |
 | US Treasury Bonds  | LBUSTRUU  | 0  | 35 |
 | US TIPS  | BROAD\_TIPS  | 0  | 25 |

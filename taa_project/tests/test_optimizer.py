@@ -43,6 +43,25 @@ def test_ensemble_score_respects_custom_config() -> None:
     assert score.index.tolist() == ALL_SAA
 
 
+def test_ensemble_score_redistributes_disabled_timesfm_to_trend_and_momo() -> None:
+    config = EnsembleConfig(
+        regime_weight=0.20,
+        trend_weight=0.30,
+        momo_weight=0.30,
+        timesfm_weight=0.20,
+        macro_factor_weight=0.0,
+    )
+    regime = pd.Series(0.0, index=ALL_SAA)
+    trend = pd.Series(1.0, index=ALL_SAA)
+    momo = pd.Series(1.0, index=ALL_SAA)
+    timesfm = pd.Series(0.0, index=ALL_SAA)
+
+    score = ensemble_score(regime, trend, momo, timesfm, macro_factor_mu=None, config=config)
+
+    expected = (0.30 + 0.10) * 0.06 + (0.30 + 0.10) * 0.06
+    assert np.isclose(score["SPXT"], expected)
+
+
 def test_saa_annual_result_returns_full_investment_weights() -> None:
     covariance = _identity_covariance()
     prev_weights = pd.Series(BM2_WEIGHTS, dtype=float).reindex(ALL_SAA).fillna(0.0)

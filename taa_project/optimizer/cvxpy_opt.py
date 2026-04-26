@@ -105,16 +105,19 @@ class EnsembleConfig:
 
     # Signal-ensemble weights must sum to 1.0 for a stable expected-return
     # scale.  Default allocation:
-    #   regime(0.40) + trend(0.20) + momo(0.20) + timesfm(0.15) + macro(0.05)
+    #   regime(0.20) + trend(0.30) + momo(0.30) + timesfm(0.15) + macro(0.05)
     #
     # History of changes (see DECISIONS.md):
     #   PR #6: regime 0.40→0.30 (freed weight to macro), macro 0.10→0.20 — reverted
-    #   2026-04 fix: regime restored to 0.40 (primary risk governor),
-    #     macro reduced to 0.05 (subordinate signal, max BTC tilt ≈0.006
-    #     vs regime max 0.040), timesfm 0.10→0.15 to absorb freed weight.
-    regime_weight: float = 0.40
-    trend_weight: float = 0.20
-    momo_weight: float = 0.20
+    #   2026-04 fix: regime restored to 0.40, macro reduced to 0.05, timesfm 0.10→0.15
+    #   2026-04 (this change): regime 0.40→0.20, trend/momo each 0.20→0.30.
+    #     HMM exits beat SAA only 41% of the time in OOS diagnostics; reducing regime
+    #     weight from 0.40 to 0.20 frees 0.20 for trend and momentum which showed
+    #     cleaner entry/exit quality. The daily defensive governor remains opt-in
+    #     rather than part of the default filed signal.
+    regime_weight: float = 0.20
+    trend_weight: float = 0.30
+    momo_weight: float = 0.30
     timesfm_weight: float = 0.15
     macro_factor_weight: float = 0.05
     regime_scale: float = 0.10
@@ -129,6 +132,7 @@ class EnsembleConfig:
     macro_scale: float = 0.20
     vol_budget_by_regime: dict[str, float] | None = None
     use_dd_guardrail: bool = False
+    use_daily_risk_governor: bool = False
     optimizer_mode: str = "vol"
     cvar_alpha: float = 0.95
     cvar_budget: float = 0.025
@@ -273,6 +277,63 @@ def _project_taa_weights_to_feasible_set(
     if not result.success:
         raise RuntimeError(f"Unable to project TAA weights into the feasible region: {result.message}")
     return result.x
+
+
+def violates_taa_constraints(
+    weights: pd.Series,
+    available: pd.Series,
+    tolerance: float = 1e-8,
+) -> bool:
+    """Return whether a full-universe weight vector breaches any hard TAA rule."""
+
+    aligned = weights.reindex(ALL_SAA).fillna(0.0).astype(float)
+    availability_mask = available.reindex(ALL_SAA).fillna(0.0).astype(bool)
+
+    if abs(float(aligned.sum()) - 1.0) > tolerance:
+        return True
+    if float(aligned.min()) < -tolerance:
+        return True
+    if bool((aligned.loc[~availability_mask] > tolerance).any()):
+        return True
+
+    active_assets = [asset for asset in ALL_SAA if availability_mask.get(asset, False)]
+    if active_assets:
+        lower_bounds, upper_bounds = _taa_bounds_for_assets(active_assets)
+        active_weights = aligned.reindex(active_assets).fillna(0.0)
+        if bool((active_weights < (lower_bounds - tolerance)).any()):
+            return True
+        if bool((active_weights > (upper_bounds + tolerance)).any()):
+            return True
+
+    if float(aligned.loc[CORE].sum()) < CORE_FLOOR - tolerance:
+        return True
+    if float(aligned.loc[SATELLITE].sum()) > SATELLITE_CAP + tolerance:
+        return True
+    if float(aligned.loc[NONTRAD].sum()) > NONTRAD_CAP + tolerance:
+        return True
+    if float(aligned.max()) > SINGLE_SLEEVE_MAX + tolerance:
+        return True
+    return False
+
+
+def project_taa_weights_to_compliance(
+    drifted_weights: pd.Series,
+    available: pd.Series,
+) -> pd.Series:
+    """Project drifted TAA holdings back into the hard-constraint feasible set."""
+
+    assets = _available_assets(available)
+    if not assets:
+        return _empty_weights()
+
+    lower_bounds, upper_bounds = _taa_bounds_for_assets(assets)
+    candidate = drifted_weights.reindex(assets).fillna(0.0)
+    try:
+        projected = _project_taa_weights_to_feasible_set(candidate, lower_bounds, upper_bounds, assets)
+    except RuntimeError:
+        emergency_target = _current_target_for_mode("taa_monthly").reindex(assets).fillna(0.0)
+        projected = _project_taa_weights_to_feasible_set(emergency_target, lower_bounds, upper_bounds, assets)
+    return _full_weights(projected, assets)
 
 
 def _project_mode_weights_to_feasible_set(
@@ -1014,11 +1075,19 @@ def ensemble_score(
     )
     # When macro signal is unavailable, its weight folds into the regime layer.
     regime_w = cfg.regime_weight + (cfg.macro_factor_weight if macro_factor_mu is None else 0.0)
+    # When TimesFM is disabled (all-zero mu), redistribute its weight equally
+    # into trend and momentum rather than leaving it dead.
+    timesfm_aligned = timesfm_mu.reindex(ALL_SAA).fillna(0.0)
+    timesfm_active = cfg.timesfm_weight > 0.0 and not bool((timesfm_aligned == 0.0).all())
+    timesfm_w = cfg.timesfm_weight if timesfm_active else 0.0
+    extra_per_signal = (cfg.timesfm_weight - timesfm_w) / 2.0
+    trend_w = cfg.trend_weight + extra_per_signal
+    momo_w = cfg.momo_weight + extra_per_signal
     score = (
         regime_w * regime_tilt * cfg.regime_scale
-        + cfg.trend_weight * trend_sig * cfg.trend_scale
-        + cfg.momo_weight * momo_sig * cfg.momo_scale
-        + cfg.timesfm_weight * timesfm_mu
+        + trend_w * trend_sig * cfg.trend_scale
+        + momo_w * momo_sig * cfg.momo_scale
+        + timesfm_w * timesfm_aligned
         + cfg.macro_factor_weight * macro_mu * cfg.macro_scale
     )
     return score.reindex(ALL_SAA).fillna(0.0)

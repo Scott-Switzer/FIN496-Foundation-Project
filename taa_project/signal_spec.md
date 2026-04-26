@@ -26,12 +26,14 @@ For each rebalance date t (month-end, or an intra-month date on HMM regime flip)
 
 1. Build macro feature matrix `X_t = {VIXCLS, BAMLH0A0HYM2, T10Y3M, NFCI, +derived}` using data ≤ t.
 2. Refit 3-state Gaussian HMM on expanding-window `X_{:t}` → regime label ∈ {risk_on, neutral, stress}.
-3. For each SAA sleeve, compute `trend_t` (tanh-scaled distance from 200-day SMA normalized by 60-day vol).
-4. For each bucket (equity, fixed-income, real, non-trad), compute `momo_t` = cross-sectional rank of ADM score.
+3. For each SAA sleeve and Appendix A opportunistic asset, compute `trend_t` (tanh-scaled distance from 200-day SMA normalized by 60-day vol).
+4. For each bucket (equity, fixed-income, real, non-trad, opportunistic sub-sleeves), compute `momo_t` = cross-sectional rank of ADM score.
 5. (Optional) Call TimesFM 2.5 on each sleeve's log-return series with context 1024, horizon 21 → `mu_fcst`, `sigma_fcst`.
-6. Ensemble: `mu_asset = 0.40·regime_tilt·10% + 0.20·trend·6% + 0.20·momo·6% + 0.20·mu_fcst`.
+6. Ensemble: `mu_asset = 0.20·regime_tilt·10% + 0.30·trend·6% + 0.30·momo·6% + 0.15·mu_fcst + 0.05·macro_factor·20%`. If TimesFM is disabled or unavailable, redistribute its 15% weight equally to trend and momentum.
 7. Covariance = 0.7·sample(252-day) + 0.3·diag, with TimesFM variances overriding the diagonal when available.
 8. Solve cvxpy problem: `max  μ'w − 3·w'Σw − 5bps·‖w−w_prev‖₁`  s.t. all IPS §6-7 constraints.
+9. If Appendix A assets have positive point-in-time trend/momentum scores, carve out a capped opportunistic alpha sleeve from the monthly TAA target: max 5% aggregate and max 5% per name, then re-project the full target through all IPS aggregate caps. This is deliberately tighter than the 15% IPS maximum because walk-forward diagnostics showed the larger sleeve increased short-window realized-volatility pressure without improving risk-adjusted return.
+10. Optional daily realized-risk governor: disabled in the filed default configuration. If explicitly enabled for an incident test, after each close and using only realized strategy returns known at that time, enter defensive TAA mode when current drawdown is ≤ -3% or trailing 21d/63d annualized realized volatility is ≥ 12%. Defensive mode targets SPXT 20%, LBUSTRUU 26%, BROAD_TIPS 24.5%, CHF 15%, and three liquid Appendix A bond sleeves at 4.833% each, then re-projects through all IPS §6-7 caps. Exit only when drawdown is ≥ -1%, trailing 21d/63d realized volatility is ≤ 9%, and the HMM regime is not `stress`. All governor turnover is charged at 5 bps.
 
 ## Walk-forward validation plan
 
@@ -48,5 +50,5 @@ For each rebalance date t (month-end, or an intra-month date on HMM regime flip)
 ## Kill-switches (documented per IPS §10.2)
 
 - If trailing 3-month realized vol > 13%, scale the signal weight down by 50% until it recovers below 10%.
-- If HMM posterior for `stress` > 0.8 for 3 consecutive days, force an emergency rebalance.
+- If the optional daily realized-risk governor is explicitly enabled and trailing 21-day or 63-day realized vol rises above 12%, force the documented defensive TAA governor target until release conditions are met.
 - If the optimizer returns infeasible for 3 consecutive rebalance dates, revert to Benchmark 2 target weights and file a §10.2 incident report.

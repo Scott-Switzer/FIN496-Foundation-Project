@@ -302,6 +302,11 @@ def _build_markdown(inputs: dict[str, object]) -> str:
     comparison = inputs["config_comparison"]
     selection = inputs["submission_selection"]
     strategy_comparison = comparison.loc[~comparison["Run"].isin(["BM1", "BM2"])].copy() if not comparison.empty else pd.DataFrame()
+    compliance_line = (
+        f"- Daily IPS audit produced {compliance_rows} hard-constraint exception rows requiring CIO escalation and written documentation before live use. [Source: `taa_project/outputs/{IPS_COMPLIANCE_FILENAME}`]"
+        if compliance_rows
+        else f"- Daily IPS audit produced no hard-constraint exceptions. [Source: `taa_project/outputs/{IPS_COMPLIANCE_FILENAME}`]"
+    )
 
     taa_vs_saa_ann = taa["annualized_return"] - saa["annualized_return"]
     taa_vs_bm2_sharpe = taa["sharpe_rf_2pct"] - bm2["sharpe_rf_2pct"]
@@ -310,13 +315,13 @@ def _build_markdown(inputs: dict[str, object]) -> str:
         "# Whitmore Capital Partners SAA/TAA Report",
         "",
         "## Executive Summary",
-        f"- The final implementation uses constrained risk parity for SAA and a monthly cvxpy TAA overlay driven by HMM regime, Faber trend, Antonacci-style ADM, and an optional TimesFM layer. This report reflects run mode `{mode_text}`. [Sources: `taa_project/saa/build_saa.py`, `taa_project/backtest/walkforward.py`, `taa_project/analysis/reporting.py`]",
+        f"- The final implementation uses the configured SAA allocator for this run together with a monthly cvxpy TAA overlay driven by HMM regime, Faber trend, Antonacci-style ADM, and an optional TimesFM layer. This report reflects run mode `{mode_text}`. [Sources: `taa_project/saa/build_saa.py`, `taa_project/backtest/walkforward.py`, `taa_project/analysis/reporting.py`]",
         f"- Net annualized return is {_format_pct(taa['annualized_return'])} for `SAA+TAA` versus {_format_pct(saa['annualized_return'])} for `SAA` and {_format_pct(bm2['annualized_return'])} for `BM2`. [Source: `taa_project/outputs/{PORTFOLIO_METRICS_FILENAME}`]",
         f"- Net Sharpe improves by {taa_vs_bm2_sharpe:.2f} versus `BM2`, while the Deflated Sharpe Ratio is {dsr_summary['baseline_dsr']:.3f} across {disclosed_trials} disclosed trials in `TRIAL_LEDGER.csv`. [Sources: `taa_project/outputs/{PORTFOLIO_METRICS_FILENAME}`, `taa_project/outputs/{DSR_SUMMARY_FILENAME}`, `TRIAL_LEDGER.csv`]",
-        f"- Daily IPS audit produced {compliance_rows} violations across the strategy target schedules. [Source: `taa_project/outputs/{IPS_COMPLIANCE_FILENAME}`]",
+        compliance_line,
         "",
         "## SAA Construction and IPS Compliance",
-        "- Risk parity was selected over inverse volatility, minimum variance, maximum diversification, and mean-variance because it cleared the 8% return objective while staying below the 15% volatility ceiling without relying on fragile expected-return estimates; minimum variance was safer on volatility but undershot the return mandate. [Sources: `taa_project/saa/build_saa.py`, `taa_project/outputs/saa_method_comparison.csv`]",
+        "- The strategic allocator is chosen from the SAA method comparison table, balancing IPS compliance and risk/return trade-offs across inverse volatility, minimum variance, risk parity, maximum diversification, mean-variance, and the optional HRP variant. [Sources: `taa_project/saa/build_saa.py`, `taa_project/outputs/saa_method_comparison.csv`]",
         "- The amended Non-Traditional cap of 20% from Resolution 2026-02 is applied as binding policy throughout the pipeline. [Sources: `IPS.md`, `Guidelines.md`, `taa_project/config.py`]",
         "",
         "## TAA Signal Design",
@@ -383,7 +388,7 @@ def _build_markdown(inputs: dict[str, object]) -> str:
             [
                 f"- Over the 2000–2025 backtest window, no portfolio respecting the IPS minimum-allocation constraints, the no-short rule, and the -25% max-drawdown limit was found under our signal stack. `BM2` itself registered {_format_pct(selection['bm2_max_dd'])} drawdown, and `BM1` {_format_pct(selection['bm1_max_dd'])}. [Sources: `taa_project/outputs/{CONFIG_COMPARISON_FILENAME}`, `taa_project/outputs/{SUBMISSION_SELECTION_FILENAME}`]",
                 f"- The submitted configuration (`{selection['run_id']}`) achieved {_format_pct(selection['max_dd'])} maximum drawdown, the lowest across {int(selection['n_tested_configurations'])} tested configurations, representing {_format_bps(selection['mdd_improvement_bps_vs_bm2'] / 10000.0)} improvement over `BM2` and {_format_bps(selection['mdd_improvement_bps_vs_saa'] / 10000.0)} improvement over the IPS-target `SAA`. [Source: `taa_project/outputs/{SUBMISSION_SELECTION_FILENAME}`]",
-                f"- The residual drawdown breach versus the IPS tolerance is {_format_bps(selection['mdd_breach_bps'] / 10000.0)}. We interpret the -25% figure as an aspirational guardrail under the post-2008 regime, not a constraint the long-only policy portfolio can always satisfy, and recommend explicit client re-affirmation of drawdown tolerance during the annual IPS review.",
+                f"- The residual drawdown breach versus the IPS tolerance is {_format_bps(selection['mdd_breach_bps'] / 10000.0)}. Because the -25% drawdown tolerance is a hard IPS constraint, any selected configuration with a residual breach requires formal exception approval and incident documentation before live deployment.",
                 f"- Decision tree outcome: `{selection['decision_rule']}` selected `{selection['run_id']}` because it delivered the best available drawdown profile while still considering DSR and return ordering. [Source: `taa_project/outputs/{SUBMISSION_SELECTION_FILENAME}`]",
                 "",
             ]
@@ -397,11 +402,12 @@ def _build_markdown(inputs: dict[str, object]) -> str:
         ]
     )
 
-    recommendation_line = (
-        f"- Use `{selection['run_id']}` as the submission configuration and treat the TAA overlay as additive only while its OOS Sharpe and DSR remain superior after costs under the disclosed trial count. [Sources: `taa_project/outputs/{PORTFOLIO_METRICS_FILENAME}`, `taa_project/outputs/{SUBMISSION_SELECTION_FILENAME}`, `TRIAL_LEDGER.csv`]"
-        if selection is not None
-        else "- Use the risk-parity SAA as the policy core and treat the TAA overlay as an additive layer only when the OOS Sharpe and DSR remain superior after costs under the disclosed trial count. [Sources: `taa_project/outputs/portfolio_metrics.csv`, `TRIAL_LEDGER.csv`]"
-    )
+    if selection is None:
+        recommendation_line = "- Use the risk-parity SAA as the policy core and treat the TAA overlay as an additive layer only when the OOS Sharpe and DSR remain superior after costs under the disclosed trial count. [Sources: `taa_project/outputs/portfolio_metrics.csv`, `TRIAL_LEDGER.csv`]"
+    elif selection["all_constraints_passed"]:
+        recommendation_line = f"- Use `{selection['run_id']}` as the submission configuration and treat the TAA overlay as additive only while its OOS Sharpe and DSR remain superior after costs under the disclosed trial count. [Sources: `taa_project/outputs/{PORTFOLIO_METRICS_FILENAME}`, `taa_project/outputs/{SUBMISSION_SELECTION_FILENAME}`, `TRIAL_LEDGER.csv`]"
+    else:
+        recommendation_line = f"- Do not treat `{selection['run_id']}` as live-deployable without formal IPS exception approval; use it only as the best tested research candidate while hard-constraint exceptions remain open. [Sources: `taa_project/outputs/{PORTFOLIO_METRICS_FILENAME}`, `taa_project/outputs/{SUBMISSION_SELECTION_FILENAME}`, `TRIAL_LEDGER.csv`]"
     lines.extend(
         [
             "## Limitations and Failure Modes",

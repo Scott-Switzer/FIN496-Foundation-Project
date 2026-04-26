@@ -556,9 +556,14 @@ def build_saa_method(
         d: compute_weights_for_method(method, prices, returns, d, inception_dates)
         for d in schedule
     }
+    rebalance_active_assets = {
+        d: [asset for asset in available_assets_on(d, inception_dates) if pd.notna(prices.loc[d, asset])]
+        for d in schedule
+    }
     weights_df, returns_df = simulate_portfolio(
         returns=returns,
         rebalance_targets=rebalance_targets,
+        rebalance_active_assets=rebalance_active_assets,
         start_date=schedule[0],
         end_date=pd.Timestamp(end_date),
     )

@@ -31,8 +31,33 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from scipy.optimize import Bounds, minimize
 
-from taa_project.config import ALL_SAA, BM2_WEIGHTS, EQUITY_ASSETS, RISKY_ASSETS_FOR_BL_STRESS, OUTPUT_DIR, TARGET_VOL, TIMESFM_CACHE_PATH, VOL_CEILING
+from taa_project.config import (
+    ALL_SAA,
+    ALL_TAA,
+    BM2_WEIGHTS,
+    CORE,
+    CORE_FLOOR,
+    COST_PER_TURNOVER,
+    EQUITY_ASSETS,
+    NONTRAD,
+    NONTRAD_CAP,
+    OPPO_CAP,
+    OPPO_PER_ASSET,
+    OPPORTUNISTIC,
+    OUTPUT_DIR,
+    RISKY_ASSETS_FOR_BL_STRESS,
+    SATELLITE,
+    SATELLITE_CAP,
+    SINGLE_SLEEVE_MAX,
+    TAA_BANDS,
+    TAA_AUDIT_BANDS,
+    TARGET_VOL,
+    TIMESFM_CACHE_PATH,
+    VOL_CEILING,
+)
+from taa_project.compliance import append_compliance_rebalance_log, compliance_breach_rows
 from taa_project.data_loader import availability_flag, load_fred, load_prices, log_returns
 from taa_project.optimizer.cvxpy_opt import (
     _build_cvar_scenarios,
@@ -73,14 +98,71 @@ TIMESFM_CACHE_FILE = TIMESFM_CACHE_PATH
 WALKFORWARD_FOLDS_FILENAME = "walkforward_folds.csv"
 OOS_RETURNS_FILENAME = "oos_returns.csv"
 OOS_WEIGHTS_FILENAME = "oos_weights.csv"
+OOS_HOLDINGS_FILENAME = "oos_holdings.csv"
 OOS_REGIMES_FILENAME = "oos_regimes.csv"
 GUARDRAIL_SWITCHES_FILENAME = "guardrail_switches.csv"
+TRADING_DAYS_PER_YEAR = 252
+DAILY_RISK_DD_TRIGGER = -0.03
+DAILY_RISK_DD_RELEASE = -0.01
+DAILY_RISK_VOL_TRIGGER = 0.12
+DAILY_RISK_VOL_RELEASE = 0.09
+DAILY_RISK_VOL_WINDOWS = (21, 63)
+OPPORTUNISTIC_ALPHA_CAP = min(OPPO_CAP, 0.05)
+OPPORTUNISTIC_ALPHA_MAX_NAMES = 3
+OPPORTUNISTIC_ALPHA_MIN_SCORE = 0.15
+OPPORTUNISTIC_ALPHA_ASSETS = [
+    "TA-125_ISRAEL",
+    "COPPERSPOT",
+    "NATURALGAS",
+    "COFFEE_FUT",
+    "COCOAINDEXSPOT",
+    "SOYBEAN_FUT",
+    "ETHEREUM",
+    "SHEKEL",
+]
 
+EMERGENCY_TAA_TARGET_WEIGHTS = {
+    "SPXT": 0.20,
+    "LBUSTRUU": 0.26,
+    "BROAD_TIPS": 0.245,
+    "CHF_FRANC": 0.15,
+    "BCEE1T_EUROAREA": 0.04833333333333333,
+    "I02923JP_JAPAN_BOND": 0.04833333333333333,
+    "LBEATREU_EUROBONDAGG": 0.04833333333333333,
+}
+EMERGENCY_TAA_FILL_ORDER = (
+    "CHF_FRANC",
+    "LBUSTRUU",
+    "BROAD_TIPS",
+    "BCEE1T_EUROAREA",
+    "I02923JP_JAPAN_BOND",
+    "LBEATREU_EUROBONDAGG",
+    "SPXT",
+)
 SLEEVE_BUCKETS = {
     "equity": ["SPXT", "FTSE100", "NIKKEI225", "CSI300_CHINA"],
     "fixed_income": ["LBUSTRUU", "BROAD_TIPS"],
     "real_assets": ["XAU", "SILVER_FUT", "B3REITT"],
     "non_traditional": ["BITCOIN", "CHF_FRANC"],
+    "opportunistic_equity": ["TA-125_ISRAEL"],
+    "opportunistic_fixed_income": [
+        "0_5Y_TIPS",
+        "BAIGTRUU_ASIACREDIT",
+        "BCEE1T_EUROAREA",
+        "I02923JP_JAPAN_BOND",
+        "LBEATREU_EUROBONDAGG",
+    ],
+    "opportunistic_commodities": [
+        "COPPERSPOT",
+        "NATURALGAS",
+        "COFFEE_FUT",
+        "COCOAINDEXSPOT",
+        "COTTON_FUT",
+        "WHEAT_SPOT",
+        "SOYBEAN_FUT",
+    ],
+    "opportunistic_digital": ["ETHEREUM"],
+    "opportunistic_fx": ["AUD", "CAD", "GBP_POUND", "EURO", "CNY", "SHEKEL", "USDJPY"],
 }
 
 
@@ -280,9 +362,9 @@ def estimate_taa_covariance(
     """
 
     history = returns.loc[:decision_date].tail(lookback_days)
-    covariance = history.cov(min_periods=min_observations)
+    covariance = history.cov(min_periods=min_observations) * 252.0
     covariance = covariance.reindex(index=ALL_SAA, columns=ALL_SAA)
-    variances = history.var(skipna=True).reindex(ALL_SAA)
+    variances = (history.var(skipna=True) * 252.0).reindex(ALL_SAA)
 
     for asset in ALL_SAA:
         variance = variances.get(asset, np.nan)
@@ -411,15 +493,262 @@ def _period_dates_between(
     return returns_index[(returns_index > decision_date) & (returns_index <= segment_end)]
 
 
+def _daily_realized_risk_state(realized_returns: list[float]) -> tuple[float, float]:
+    if not realized_returns:
+        return 0.0, 0.0
+
+    returns_series = pd.Series(realized_returns, dtype=float)
+    wealth = (1.0 + returns_series).cumprod()
+    current_drawdown = float(wealth.iloc[-1] / wealth.cummax().iloc[-1] - 1.0)
+    realized_vol = 0.0
+    for window in DAILY_RISK_VOL_WINDOWS:
+        if len(returns_series) >= window:
+            realized_vol = max(
+                realized_vol,
+                float(returns_series.tail(window).std(ddof=0) * np.sqrt(TRADING_DAYS_PER_YEAR)),
+            )
+    return current_drawdown, realized_vol
+
+
+def _daily_risk_should_be_defensive(
+    currently_defensive: bool,
+    realized_returns: list[float],
+    regime_label: str,
+) -> bool:
+    current_drawdown, realized_vol = _daily_realized_risk_state(realized_returns)
+    if currently_defensive:
+        return not (current_drawdown >= DAILY_RISK_DD_RELEASE and realized_vol <= DAILY_RISK_VOL_RELEASE and regime_label != "stress")
+    return current_drawdown <= DAILY_RISK_DD_TRIGGER or realized_vol >= DAILY_RISK_VOL_TRIGGER
+
+
+def _taa_universe_upper_bound(asset: str) -> float:
+    if asset in OPPORTUNISTIC:
+        return OPPO_PER_ASSET
+    return float(min(TAA_BANDS[asset][1], SINGLE_SLEEVE_MAX))
+
+
+def _taa_universe_lower_bound(asset: str) -> float:
+    if asset in OPPORTUNISTIC:
+        return 0.0
+    return float(TAA_BANDS[asset][0])
+
+
+def _available_taa_universe(available: pd.Series) -> list[str]:
+    mask = available.reindex(ALL_TAA).fillna(0.0).astype(bool)
+    return [asset for asset in ALL_TAA if bool(mask.get(asset, False))]
+
+
+def _taa_universe_bounds(assets: list[str]) -> tuple[pd.Series, pd.Series]:
+    lower = pd.Series({asset: _taa_universe_lower_bound(asset) for asset in assets}, dtype=float)
+    upper = pd.Series({asset: _taa_universe_upper_bound(asset) for asset in assets}, dtype=float)
+    return lower, upper
+
+
+def _constraint_index(assets: list[str], members: list[str]) -> list[int]:
+    member_set = set(members)
+    return [index for index, asset in enumerate(assets) if asset in member_set]
+
+
+def _project_taa_universe_weights_to_compliance(drifted_weights: pd.Series, available: pd.Series) -> pd.Series:
+    assets = _available_taa_universe(available)
+    full = pd.Series(0.0, index=ALL_TAA, dtype=float)
+    if not assets:
+        return full
+
+    lower_bounds, upper_bounds = _taa_universe_bounds(assets)
+    target = drifted_weights.reindex(assets).fillna(0.0).astype(float)
+    if float(target.sum()) <= 0.0:
+        target = pd.Series(1.0 / len(assets), index=assets, dtype=float)
+    else:
+        target = target / float(target.sum())
+
+    lower = lower_bounds.to_numpy(dtype=float)
+    upper = upper_bounds.to_numpy(dtype=float)
+    x0 = np.clip(target.to_numpy(dtype=float), lower, upper)
+    if float(x0.sum()) > 0.0:
+        x0 = x0 / float(x0.sum())
+
+    core_idx = _constraint_index(assets, CORE)
+    sat_idx = _constraint_index(assets, SATELLITE)
+    nontrad_idx = _constraint_index(assets, NONTRAD)
+    oppo_idx = _constraint_index(assets, OPPORTUNISTIC)
+
+    constraints = [{"type": "eq", "fun": lambda weights: float(np.sum(weights) - 1.0)}]
+    if core_idx:
+        constraints.append({"type": "ineq", "fun": lambda weights, idx=core_idx: float(np.sum(weights[idx]) - CORE_FLOOR)})
+    if sat_idx:
+        constraints.append({"type": "ineq", "fun": lambda weights, idx=sat_idx: float(SATELLITE_CAP - np.sum(weights[idx]))})
+    if nontrad_idx:
+        constraints.append({"type": "ineq", "fun": lambda weights, idx=nontrad_idx: float(NONTRAD_CAP - np.sum(weights[idx]))})
+    if oppo_idx:
+        constraints.append({"type": "ineq", "fun": lambda weights, idx=oppo_idx: float(OPPO_CAP - np.sum(weights[idx]))})
+
+    result = minimize(
+        lambda weights: float(np.sum((weights - target.to_numpy(dtype=float)) ** 2)),
+        x0=x0,
+        method="SLSQP",
+        bounds=Bounds(lower, upper),
+        constraints=constraints,
+        options={"maxiter": 1000, "ftol": 1e-12},
+    )
+    if result.success:
+        full.loc[assets] = result.x
+        return full
+
+    emergency = pd.Series(EMERGENCY_TAA_TARGET_WEIGHTS, dtype=float).reindex(ALL_TAA).fillna(0.0)
+    emergency = emergency.where(available.reindex(ALL_TAA).fillna(0.0).astype(bool), 0.0)
+    if float(emergency.sum()) > 0.0:
+        emergency = emergency / float(emergency.sum())
+        full.loc[assets] = emergency.reindex(assets).fillna(0.0)
+    return full
+
+
+def _violates_taa_universe_constraints(
+    weights: pd.Series,
+    available: pd.Series,
+    tolerance: float = 1e-8,
+) -> bool:
+    aligned = weights.reindex(ALL_TAA).fillna(0.0).astype(float)
+    availability_mask = available.reindex(ALL_TAA).fillna(0.0).astype(bool)
+
+    if abs(float(aligned.sum()) - 1.0) > tolerance:
+        return True
+    if float(aligned.min()) < -tolerance:
+        return True
+    if bool((aligned.loc[~availability_mask] > tolerance).any()):
+        return True
+
+    active_assets = _available_taa_universe(available)
+    if active_assets:
+        lower_bounds, upper_bounds = _taa_universe_bounds(active_assets)
+        active_weights = aligned.reindex(active_assets).fillna(0.0)
+        if bool((active_weights < (lower_bounds - tolerance)).any()):
+            return True
+        if bool((active_weights > (upper_bounds + tolerance)).any()):
+            return True
+
+    if float(aligned.loc[CORE].sum()) < CORE_FLOOR - tolerance:
+        return True
+    if float(aligned.loc[SATELLITE].sum()) > SATELLITE_CAP + tolerance:
+        return True
+    if float(aligned.loc[NONTRAD].sum()) > NONTRAD_CAP + tolerance:
+        return True
+    if float(aligned.loc[OPPORTUNISTIC].sum()) > OPPO_CAP + tolerance:
+        return True
+    if float(aligned.max()) > SINGLE_SLEEVE_MAX + tolerance:
+        return True
+    return False
+
+
+def _defensive_taa_target(available_assets: pd.Series) -> pd.Series:
+    target = pd.Series(EMERGENCY_TAA_TARGET_WEIGHTS, dtype=float).reindex(ALL_TAA).fillna(0.0)
+    available_mask = available_assets.reindex(ALL_TAA).fillna(0.0).astype(bool)
+    target.loc[~available_mask] = 0.0
+
+    residual = 1.0 - float(target.sum())
+    for asset in EMERGENCY_TAA_FILL_ORDER:
+        if residual <= 1e-12 or not bool(available_mask.get(asset, False)):
+            continue
+        room = _taa_universe_upper_bound(asset) - float(target.get(asset, 0.0))
+        addition = min(room, residual)
+        if addition > 0.0:
+            target.loc[asset] = float(target.get(asset, 0.0)) + addition
+            residual -= addition
+
+    return _project_taa_universe_weights_to_compliance(target, available_assets)
+
+
+def _opportunistic_alpha_target(
+    trend: pd.Series,
+    momentum: pd.Series,
+    available_assets: pd.Series,
+) -> pd.Series:
+    """Build a signal-driven opportunistic sleeve target within IPS caps."""
+
+    alpha_assets = [asset for asset in OPPORTUNISTIC_ALPHA_ASSETS if asset in OPPORTUNISTIC]
+    available_mask = available_assets.reindex(alpha_assets).fillna(0.0).astype(bool)
+    raw_score = (
+        0.60 * trend.reindex(alpha_assets).fillna(0.0)
+        + 0.40 * momentum.reindex(alpha_assets).fillna(0.0)
+    )
+    raw_score = raw_score.where(available_mask, 0.0)
+    raw_score = raw_score.where(raw_score >= OPPORTUNISTIC_ALPHA_MIN_SCORE, 0.0)
+    raw_score = raw_score.sort_values(ascending=False).head(OPPORTUNISTIC_ALPHA_MAX_NAMES)
+
+    target = pd.Series(0.0, index=ALL_TAA, dtype=float)
+    positive = raw_score.loc[raw_score > 0.0]
+    if positive.empty:
+        return target
+
+    scaled = positive / float(positive.sum()) * OPPORTUNISTIC_ALPHA_CAP
+    scaled = scaled.clip(upper=OPPO_PER_ASSET)
+    target.loc[scaled.index] = scaled
+    return target
+
+
+def _apply_opportunistic_alpha_sleeve(
+    base_weights: pd.Series,
+    opportunistic_target: pd.Series,
+    available_assets: pd.Series,
+) -> pd.Series:
+    """Carve a capped opportunistic sleeve out of the monthly TAA target."""
+
+    desired_oppo = opportunistic_target.reindex(OPPORTUNISTIC).fillna(0.0)
+    desired_oppo = desired_oppo.where(available_assets.reindex(OPPORTUNISTIC).fillna(0.0).astype(bool), 0.0)
+    oppo_total = min(float(desired_oppo.sum()), OPPO_CAP)
+
+    if oppo_total <= 1e-12:
+        return base_weights.reindex(ALL_TAA).fillna(0.0)
+
+    candidate = base_weights.reindex(ALL_TAA).fillna(0.0).astype(float)
+    saa_weights = candidate.reindex(ALL_SAA).fillna(0.0)
+    if float(saa_weights.sum()) <= 1e-12:
+        saa_weights = pd.Series(BM2_WEIGHTS, dtype=float).reindex(ALL_SAA).fillna(0.0)
+    saa_weights = saa_weights / float(saa_weights.sum()) * (1.0 - oppo_total)
+
+    candidate.loc[ALL_SAA] = saa_weights
+    candidate.loc[OPPORTUNISTIC] = 0.0
+    candidate.loc[desired_oppo.index] = desired_oppo
+    return _project_taa_universe_weights_to_compliance(candidate, available_assets)
+
+
+def _reprice_monthly_result(
+    solve_result: OptimizationResult,
+    adjusted_weights: pd.Series,
+    previous_weights: pd.Series,
+) -> OptimizationResult:
+    """Recompute turnover/costs after a post-optimizer sleeve adjustment."""
+
+    aligned_weights = adjusted_weights.reindex(ALL_TAA).fillna(0.0)
+    aligned_previous = previous_weights.reindex(ALL_TAA).fillna(0.0)
+    turnover = float((aligned_weights - aligned_previous).abs().sum())
+    return OptimizationResult(
+        weights=aligned_weights,
+        mode=solve_result.mode,
+        status=solve_result.status,
+        used_fallback=solve_result.used_fallback,
+        turnover=turnover,
+        turnover_cost=COST_PER_TURNOVER * turnover,
+        ex_ante_vol=solve_result.ex_ante_vol,
+        message=solve_result.message,
+    )
+
+
 def simulate_period_returns(
     returns: pd.DataFrame,
     period_dates: pd.DatetimeIndex,
     starting_weights: pd.Series,
-    turnover_cost: float,
+    initial_turnover: float,
+    initial_turnover_cost: float,
+    available_assets: pd.Series,
     fold_id: int,
     decision_date: pd.Timestamp,
     regime_label: str,
-) -> tuple[pd.DataFrame, pd.Series]:
+    compliance_log_path: Path | None = None,
+    realized_history: list[float] | None = None,
+    daily_risk_state: dict[str, bool] | None = None,
+    enable_daily_risk_governor: bool = False,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.Series]:
     """Simulate daily OOS returns between two monthly decision dates.
 
     Inputs:
@@ -427,14 +756,28 @@ def simulate_period_returns(
     - `period_dates`: dates strictly after the current decision date and up to
       the next decision date.
     - `starting_weights`: portfolio weights immediately after the rebalance.
-    - `turnover_cost`: one-off cost applied on the first day in the period.
+    - `initial_turnover`: one-off turnover applied on the first day in the
+      period for the scheduled monthly TAA rebalance.
+    - `initial_turnover_cost`: one-off transaction cost paired with
+      `initial_turnover`.
+    - `available_assets`: full-universe 1/0 availability mask fixed at the
+      decision date for the current OOS segment.
     - `fold_id`: active fold identifier.
     - `decision_date`: monthly decision date that produced `starting_weights`.
     - `regime_label`: regime label active at the decision date.
+    - `compliance_log_path`: optional CSV destination for automatic
+      IPS-compliance rebalance documentation.
+    - `realized_history`: mutable portfolio-return history used by the
+      optional realized-volatility governor.
+    - `daily_risk_state`: mutable state for the optional governor's hysteresis.
+    - `enable_daily_risk_governor`: whether to allow the optional daily
+      defensive TAA governor. Disabled by default because the filed monthly
+      signal specification is the production path.
 
     Outputs:
-    - Tuple `(period_returns_df, end_weights)` where `end_weights` are the
-      drifted holdings at the end of the segment.
+    - Tuple `(period_returns_df, holdings_df, end_weights)` where
+      `holdings_df` stores realized start-of-day holdings and `end_weights`
+      are the post-close holdings carried into the next segment.
 
     Citation:
     - Whitmore Task 6 walk-forward specification.
@@ -444,14 +787,83 @@ def simulate_period_returns(
       realized returns after the decision date.
     """
 
-    current_weights = starting_weights.reindex(ALL_SAA).fillna(0.0).copy()
+    current_weights = starting_weights.reindex(ALL_TAA).fillna(0.0).copy()
+    realized_returns = realized_history if realized_history is not None else []
+    risk_state = daily_risk_state if daily_risk_state is not None else {"active": False}
+    if enable_daily_risk_governor and bool(risk_state.get("active", False)):
+        defensive_target = _defensive_taa_target(available_assets)
+        initial_overlay_turnover = float((defensive_target - current_weights).abs().sum())
+        initial_turnover += initial_overlay_turnover
+        initial_turnover_cost += COST_PER_TURNOVER * initial_overlay_turnover
+        current_weights = defensive_target.copy()
     rows: list[dict[str, object]] = []
+    holdings_rows: list[pd.Series] = []
     for offset, date in enumerate(period_dates):
-        gross_vector = np.exp(returns.loc[date].reindex(ALL_SAA).fillna(0.0))
-        gross_return = float((current_weights * (gross_vector - 1.0)).sum())
-        cost = turnover_cost if offset == 0 else 0.0
-        portfolio_return = gross_return - cost
+        daily_risk_rebalance_flag = 0
+        extra_risk_turnover = 0.0
+        extra_risk_cost = 0.0
+        if enable_daily_risk_governor:
+            next_risk_active = _daily_risk_should_be_defensive(
+                bool(risk_state.get("active", False)),
+                realized_returns,
+                regime_label,
+            )
+            if next_risk_active != bool(risk_state.get("active", False)):
+                target = _defensive_taa_target(available_assets) if next_risk_active else starting_weights.reindex(ALL_TAA).fillna(0.0)
+                extra_risk_turnover = float((target - current_weights).abs().sum())
+                extra_risk_cost = COST_PER_TURNOVER * extra_risk_turnover
+                current_weights = target.copy()
+                risk_state["active"] = next_risk_active
+                daily_risk_rebalance_flag = 1
+            elif next_risk_active:
+                target = _defensive_taa_target(available_assets)
+                target_drift = float((target - current_weights).abs().sum())
+                if target_drift > 1e-8:
+                    extra_risk_turnover = target_drift
+                    extra_risk_cost = COST_PER_TURNOVER * extra_risk_turnover
+                    current_weights = target.copy()
+                    daily_risk_rebalance_flag = 1
 
+        holdings_rows.append(current_weights.rename(date))
+        gross_vector = np.exp(returns.loc[date].reindex(ALL_TAA).fillna(0.0))
+        gross_return = float((current_weights * (gross_vector - 1.0)).sum())
+        turnover = (initial_turnover if offset == 0 else 0.0) + extra_risk_turnover
+        turnover_cost = (initial_turnover_cost if offset == 0 else 0.0) + extra_risk_cost
+        scheduled_rebalance_flag = int(offset == 0)
+        compliance_rebalance_flag = 0
+
+        post_move_value = current_weights * gross_vector
+        denominator = float(post_move_value.sum())
+        post_move_weights = post_move_value / denominator if denominator > 0 else current_weights.copy()
+
+        current_weights = post_move_weights.copy()
+        if _violates_taa_universe_constraints(current_weights, available_assets):
+            pre_rebalance = current_weights.copy()
+            projected = _project_taa_universe_weights_to_compliance(current_weights, available_assets)
+            compliance_turnover = float((projected - current_weights).abs().sum())
+            turnover += compliance_turnover
+            turnover_cost += COST_PER_TURNOVER * compliance_turnover
+            current_weights = projected
+            compliance_rebalance_flag = 1
+            if compliance_log_path is not None:
+                append_compliance_rebalance_log(
+                    compliance_log_path,
+                    compliance_breach_rows(
+                        portfolio="SAA+TAA",
+                        date=date,
+                        decision_date=decision_date,
+                        pre_trade_weights=pre_rebalance,
+                        post_trade_weights=projected,
+                        active_assets=_available_taa_universe(available_assets),
+                        band_map=TAA_AUDIT_BANDS,
+                        turnover=compliance_turnover,
+                        remediation="projected_drifted_taa_holdings_to_ips_feasible_set",
+                    ),
+                )
+
+        portfolio_return = gross_return - turnover_cost
+        if enable_daily_risk_governor:
+            realized_returns.append(portfolio_return)
         rows.append(
             {
                 "date": date,
@@ -459,19 +871,33 @@ def simulate_period_returns(
                 "decision_date": decision_date,
                 "regime": regime_label,
                 "gross_return": gross_return,
-                "turnover_cost": cost,
+                "turnover": turnover,
+                "turnover_cost": turnover_cost,
                 "portfolio_return": portfolio_return,
+                "scheduled_rebalance_flag": scheduled_rebalance_flag,
+                "compliance_rebalance_flag": compliance_rebalance_flag,
+                "daily_risk_rebalance_flag": daily_risk_rebalance_flag,
+                "rebalance_flag": int(scheduled_rebalance_flag or compliance_rebalance_flag or daily_risk_rebalance_flag),
             }
         )
 
-        post_move_value = current_weights * gross_vector
-        denominator = float(post_move_value.sum())
-        current_weights = post_move_value / denominator if denominator > 0 else current_weights.copy()
-
     period_df = pd.DataFrame(rows).set_index("date") if rows else pd.DataFrame(
-        columns=["fold_id", "decision_date", "regime", "gross_return", "turnover_cost", "portfolio_return"]
+        columns=[
+            "fold_id",
+            "decision_date",
+            "regime",
+            "gross_return",
+            "turnover",
+            "turnover_cost",
+            "portfolio_return",
+            "scheduled_rebalance_flag",
+            "compliance_rebalance_flag",
+            "daily_risk_rebalance_flag",
+            "rebalance_flag",
+        ]
     )
-    return period_df, current_weights
+    holdings_df = pd.DataFrame(holdings_rows).astype(float) if holdings_rows else pd.DataFrame(columns=ALL_TAA, dtype=float)
+    return period_df, holdings_df, current_weights
 
 
 def run_walkforward(
@@ -485,7 +911,6 @@ def run_walkforward(
     output_dir: Path = OUTPUT_DIR,
     ensemble_config: EnsembleConfig | None = None,
     timesfm_cache_path: Path | None = TIMESFM_CACHE_FILE,
-    use_mv_signal: bool = True,
 ) -> dict[str, pd.DataFrame]:
     """Run the full walk-forward OOS TAA backtest.
 
@@ -500,15 +925,10 @@ def run_walkforward(
     - `output_dir`: destination for generated CSV outputs.
     - `ensemble_config`: optional signal-ensemble configuration.
     - `timesfm_cache_path`: optional shared parquet cache path for TimesFM.
-    - `use_mv_signal`: when `True`, replace the multi-signal ensemble `mu`
-      with Black-Litterman equilibrium returns blended with 12-1 month
-      momentum (the same estimator used by the best-performing SAA
-      mean-variance method). The TAA CVXPY optimizer objective and all IPS
-      constraints remain identical — only the expected-return input changes.
 
     Outputs:
     - Dictionary containing exported dataframes:
-      `folds`, `oos_returns`, `oos_weights`, `oos_regimes`,
+      `folds`, `oos_returns`, `oos_weights`, `oos_holdings`, `oos_regimes`,
       `guardrail_switches`.
 
     Citation:
@@ -536,10 +956,10 @@ def run_walkforward(
     fred = load_fred()
     returns = log_returns(prices)
     availability = availability_flag(prices)
-    valid_return_index = returns.loc[:, ALL_SAA].dropna(how="all").index
+    valid_return_index = returns.loc[:, ALL_TAA].dropna(how="all").index
 
-    trend_signals = trend_score(prices.loc[:, ALL_SAA])
-    momo_signals = cross_sectional_rank(adm_score(prices.loc[:, ALL_SAA]), SLEEVE_BUCKETS)
+    trend_signals = trend_score(prices.loc[:, ALL_TAA])
+    momo_signals = cross_sectional_rank(adm_score(prices.loc[:, ALL_TAA]), SLEEVE_BUCKETS)
     # 5-feature set (includes DFII10) — used ONLY for the macro_factor signal.
     # real_yield_tilt() reads DFII10 from this panel; at macro_factor_weight=0.05
     # and macro_scale=0.20 the maximum contribution per asset is ±0.006 (subordinate).
@@ -552,9 +972,9 @@ def run_walkforward(
     # Because _state_stress_scores() treats DFII10 as a stress contributor, a
     # persistently negative z kept stress scores low and caused the HMM to label nearly
     # all 2009–2021 months as 'risk_on' regardless of actual market conditions.
-    # At regime_weight=0.40 × regime_scale=0.10, the regime signal can shift weights
-    # by up to ±0.040 per asset — 6.7× the macro_factor channel (±0.006).  This was
-    # the actual dominant root cause of the 4.6 % return inflation.
+    # At regime_weight=0.20 × regime_scale=0.10, the regime signal can shift weights
+    # by up to ±0.020 per asset. OOS diagnostics showed HMM exits were weak, so
+    # regime remains a soft input rather than a hard defensive switch.
     # Regime labels should be driven by stationary stress indicators (VIX, HY spreads,
     # yield curve, NFCI) that mean-revert within quarters, not by a decade-long
     # real-rate trend.  See DECISIONS.md for the full root-cause attribution.
@@ -587,15 +1007,18 @@ def run_walkforward(
                     f"regime vol budget for {regime_label}={regime_budget:.4f} is below 0.0200. "
                     "This is likely a typo."
                 )
-    previous_weights = pd.Series(BM2_WEIGHTS, dtype=float).reindex(ALL_SAA).fillna(0.0)
+    previous_weights = pd.Series(BM2_WEIGHTS, dtype=float).reindex(ALL_TAA).fillna(0.0)
     current_hmm_model = None
     current_fold_id: int | None = None
 
     weight_rows: list[pd.Series] = []
     regime_rows: list[dict[str, object]] = []
     return_frames: list[pd.DataFrame] = []
+    holdings_frames: list[pd.DataFrame] = []
     guardrail_switch_rows: list[dict[str, object]] = []
     current_guardrail_multiplier = 1.0
+    daily_risk_history: list[float] = []
+    daily_risk_state = {"active": False}
     breach_log_path = output_dir / "breaches.log"
 
     for index, decision_date in enumerate(decision_dates):
@@ -629,42 +1052,21 @@ def run_walkforward(
             as_of_date=pd.Timestamp(decision_date),
         )
 
-        # Covariance and available universe are computed first so that both the
-        # ensemble path and the MV (BL+momentum) path can reference them.
+        from taa_project.optimizer.cvxpy_opt import ensemble_score as _ensemble_score
+        signal_score = _ensemble_score(
+            regime_tilt=regime_tilt,
+            trend_sig=signal_bundle.trend,
+            momo_sig=signal_bundle.momo,
+            timesfm_mu=signal_bundle.timesfm_mu,
+            macro_factor_mu=macro_mu,
+            config=config,
+        )
+
         covariance = estimate_taa_covariance(
             returns.loc[:, ALL_SAA],
             decision_date=pd.Timestamp(decision_date),
             timesfm_sigma=signal_bundle.timesfm_sigma,
         )
-        available_assets = availability.loc[:decision_date].iloc[-1].reindex(ALL_SAA).fillna(0.0)
-        active_universe = [asset for asset in ALL_SAA if bool(available_assets.get(asset, 0.0))]
-
-        if use_mv_signal:
-            # Mean-variance signal: BL equilibrium returns (anchored to BM2
-            # policy weights) blended with 12-1 month cross-sectional momentum.
-            # Identical to the expected-return estimator used by the best-
-            # performing SAA method. Point-in-time safe — uses only data up to
-            # and including the current decision date.
-            from taa_project.saa.saa_comparison import blended_expected_returns as _bl_momo_mu
-
-            signal_score = _bl_momo_mu(
-                returns.loc[:, ALL_SAA],
-                pd.Timestamp(decision_date),
-                covariance,
-                active_universe,
-            ).reindex(ALL_SAA).fillna(0.0)
-        else:
-            from taa_project.optimizer.cvxpy_opt import ensemble_score as _ensemble_score
-
-            signal_score = _ensemble_score(
-                regime_tilt=regime_tilt,
-                trend_sig=signal_bundle.trend,
-                momo_sig=signal_bundle.momo,
-                timesfm_mu=signal_bundle.timesfm_mu,
-                macro_factor_mu=macro_mu,
-                config=config,
-            )
-
         if config.use_bl_stress_views:
             mu_bl = bl_with_stress_views(
                 policy_weights=pd.Series(BM2_WEIGHTS, dtype=float),
@@ -699,6 +1101,9 @@ def run_walkforward(
         )
         active_vol_budget *= guardrail_multiplier
         print(f"[SOLVE] vb={active_vol_budget} regime={signal_bundle.regime_label}")
+        available_assets = availability.loc[:decision_date].iloc[-1].reindex(ALL_TAA).fillna(0.0)
+        optimizer_available_assets = available_assets.reindex(ALL_SAA).fillna(0.0)
+        active_universe = [asset for asset in ALL_SAA if bool(optimizer_available_assets.get(asset, 0.0))]
         scenario_returns = (
             _build_cvar_scenarios(
                 asset_log_returns=returns.loc[:, ALL_SAA],
@@ -713,7 +1118,7 @@ def run_walkforward(
             solve_result = solve_nested_taa(
                 expected_returns=signal_score,
                 cov_matrix=covariance,
-                available=available_assets,
+                available=optimizer_available_assets,
                 previous_weights=previous_weights,
                 config=config.nested_risk_config,
                 ensemble_config=config,
@@ -728,7 +1133,7 @@ def run_walkforward(
                 signal_score=signal_score,
                 cov_matrix=covariance,
                 prev_weights=previous_weights,
-                available=available_assets,
+                available=optimizer_available_assets,
                 as_of_date=pd.Timestamp(decision_date),
                 vol_budget=active_vol_budget,
                 breach_log_path=breach_log_path,
@@ -736,7 +1141,24 @@ def run_walkforward(
                 scenario_returns=scenario_returns,
             )
 
-        weight_row = solve_result.weights.rename(pd.Timestamp(decision_date))
+        opportunistic_target = _opportunistic_alpha_target(
+            trend=trend_signals.loc[:decision_date].iloc[-1],
+            momentum=momo_signals.loc[:decision_date].iloc[-1],
+            available_assets=available_assets,
+        )
+        adjusted_weights = _apply_opportunistic_alpha_sleeve(
+            base_weights=solve_result.weights,
+            opportunistic_target=opportunistic_target,
+            available_assets=available_assets,
+        )
+        if float((adjusted_weights - solve_result.weights.reindex(ALL_TAA).fillna(0.0)).abs().sum()) > 1e-10:
+            solve_result = _reprice_monthly_result(
+                solve_result=solve_result,
+                adjusted_weights=adjusted_weights,
+                previous_weights=previous_weights,
+            )
+
+        weight_row = solve_result.weights.reindex(ALL_TAA).fillna(0.0).rename(pd.Timestamp(decision_date))
         weight_row["fold_id"] = fold_spec.fold_id
         weight_row["turnover"] = solve_result.turnover
         weight_row["turnover_cost"] = solve_result.turnover_cost
@@ -769,17 +1191,25 @@ def run_walkforward(
             next_decision,
             pd.Timestamp(end),
         )
-        period_returns, ending_weights = simulate_period_returns(
-            returns=returns.loc[:, ALL_SAA],
+        period_returns, period_holdings, ending_weights = simulate_period_returns(
+            returns=returns.loc[:, ALL_TAA],
             period_dates=period_dates,
             starting_weights=solve_result.weights,
-            turnover_cost=solve_result.turnover_cost,
+            initial_turnover=solve_result.turnover,
+            initial_turnover_cost=solve_result.turnover_cost,
+            available_assets=available_assets,
             fold_id=fold_spec.fold_id,
             decision_date=pd.Timestamp(decision_date),
             regime_label=signal_bundle.regime_label,
+            compliance_log_path=output_dir / "taa_compliance_rebalances.csv",
+            realized_history=daily_risk_history,
+            daily_risk_state=daily_risk_state,
+            enable_daily_risk_governor=config.use_daily_risk_governor,
         )
         if not period_returns.empty:
             return_frames.append(period_returns)
+        if not period_holdings.empty:
+            holdings_frames.append(period_holdings)
 
         previous_weights = ending_weights
 
@@ -788,13 +1218,28 @@ def run_walkforward(
     regimes_df = pd.DataFrame(regime_rows).set_index("date")
     guardrail_switches_df = pd.DataFrame(guardrail_switch_rows, columns=["date", "trailing_dd", "action"])
     oos_returns_df = pd.concat(return_frames).sort_index() if return_frames else pd.DataFrame(
-        columns=["fold_id", "decision_date", "regime", "gross_return", "turnover_cost", "portfolio_return"]
+        columns=[
+            "fold_id",
+            "decision_date",
+            "regime",
+            "gross_return",
+            "turnover",
+            "turnover_cost",
+            "portfolio_return",
+            "scheduled_rebalance_flag",
+            "compliance_rebalance_flag",
+            "daily_risk_rebalance_flag",
+            "rebalance_flag",
+        ]
     )
+    oos_holdings_df = pd.concat(holdings_frames).sort_index() if holdings_frames else pd.DataFrame(columns=ALL_TAA, dtype=float)
+    oos_holdings_df.index.name = "date"
 
     output_dir.mkdir(parents=True, exist_ok=True)
     folds_df.to_csv(output_dir / WALKFORWARD_FOLDS_FILENAME, index=False)
     oos_returns_df.to_csv(output_dir / OOS_RETURNS_FILENAME)
     weights_df.to_csv(output_dir / OOS_WEIGHTS_FILENAME)
+    oos_holdings_df.to_csv(output_dir / OOS_HOLDINGS_FILENAME)
     regimes_df.to_csv(output_dir / OOS_REGIMES_FILENAME)
     guardrail_switches_df.to_csv(output_dir / GUARDRAIL_SWITCHES_FILENAME, index=False)
 
@@ -802,6 +1247,7 @@ def run_walkforward(
         "folds": folds_df,
         "oos_returns": oos_returns_df,
         "oos_weights": weights_df,
+        "oos_holdings": oos_holdings_df,
         "oos_regimes": regimes_df,
         "guardrail_switches": guardrail_switches_df,
     }
@@ -851,6 +1297,10 @@ def main() -> None:
     guardrail_group.add_argument("--dd-guardrail", dest="dd_guardrail", action="store_true", help="Enable the drawdown-clip overlay.")
     guardrail_group.add_argument("--no-dd-guardrail", dest="dd_guardrail", action="store_false", help="Disable the drawdown-clip overlay.")
     parser.set_defaults(dd_guardrail=False)
+    daily_risk_group = parser.add_mutually_exclusive_group()
+    daily_risk_group.add_argument("--daily-risk-governor", dest="daily_risk_governor", action="store_true", help="Enable the optional daily realized-risk TAA governor.")
+    daily_risk_group.add_argument("--no-daily-risk-governor", dest="daily_risk_governor", action="store_false", help="Disable the optional daily realized-risk TAA governor.")
+    parser.set_defaults(daily_risk_governor=False)
     parser.add_argument("--output-dir", default=str(OUTPUT_DIR), help="Destination directory for generated CSV files.")
     args = parser.parse_args()
 
@@ -863,12 +1313,15 @@ def main() -> None:
         use_timesfm=args.timesfm,
         vol_budget=args.vol_budget,
         output_dir=output_dir,
-        ensemble_config=EnsembleConfig(use_dd_guardrail=args.dd_guardrail),
+        ensemble_config=EnsembleConfig(
+            use_dd_guardrail=args.dd_guardrail,
+            use_daily_risk_governor=args.daily_risk_governor,
+        ),
     )
     print(
         "Walk-forward outputs written to "
         f"{output_dir / WALKFORWARD_FOLDS_FILENAME}, {output_dir / OOS_RETURNS_FILENAME}, "
-        f"{output_dir / OOS_WEIGHTS_FILENAME}, {output_dir / OOS_REGIMES_FILENAME}, "
+        f"{output_dir / OOS_WEIGHTS_FILENAME}, {output_dir / OOS_HOLDINGS_FILENAME}, {output_dir / OOS_REGIMES_FILENAME}, "
         f"and {output_dir / GUARDRAIL_SWITCHES_FILENAME}. "
         f"OOS daily rows: {len(artifacts['oos_returns'])}"
     )

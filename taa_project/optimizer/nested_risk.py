@@ -69,7 +69,7 @@ class NestedRiskConfig:
     """Configuration for sleeve-by-sleeve risk budgeting."""
 
     core_vol_target: float = 0.06
-    satellite_vol_target: float = 0.10
+    satellite_vol_target: float = 0.105
     nontraditional_vol_target: float = 0.15
     sleeve_weights: tuple[float, float, float] = (0.55, 0.35, 0.10)
     use_cvar_per_sleeve: bool = False

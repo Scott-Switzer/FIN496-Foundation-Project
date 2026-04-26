@@ -21,7 +21,7 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 
-from taa_project.config import ALL_SAA, CORE, NONTRAD, OUTPUT_DIR, SATELLITE, TRIAL_LEDGER_CSV
+from taa_project.config import ALL_SAA, ALL_TAA, CORE, NONTRAD, OPPORTUNISTIC, OUTPUT_DIR, SATELLITE, TRIAL_LEDGER_CSV
 from taa_project.data_loader import load_prices, log_returns
 from taa_project.pandas_utils import forward_propagate
 
@@ -50,14 +50,16 @@ def tier_map() -> dict[str, str]:
     mapping = {asset: "Core" for asset in CORE}
     mapping.update({asset: "Satellite" for asset in SATELLITE})
     mapping.update({asset: "Non-Traditional" for asset in NONTRAD})
+    mapping.update({asset: "Opportunistic" for asset in OPPORTUNISTIC})
     return mapping
 
 
-def simple_asset_returns(prices: pd.DataFrame | None = None) -> pd.DataFrame:
+def simple_asset_returns(prices: pd.DataFrame | None = None, assets: list[str] | None = None) -> pd.DataFrame:
     """Return audited simple asset returns derived from Task 1 log returns.
 
     Inputs:
     - `prices`: optional price dataframe. If omitted, load the audited prices.
+    - `assets`: optional asset universe. Defaults to the SAA universe.
 
     Outputs:
     - Simple-return dataframe aligned to the full price calendar.
@@ -70,7 +72,9 @@ def simple_asset_returns(prices: pd.DataFrame | None = None) -> pd.DataFrame:
       price panel.
     """
 
-    price_frame = load_prices().loc[:, ALL_SAA] if prices is None else prices.loc[:, ALL_SAA]
+    asset_list = ALL_SAA if assets is None else assets
+    price_source = load_prices() if prices is None else prices
+    price_frame = price_source.loc[:, asset_list]
     log_ret = log_returns(price_frame)
     return np.exp(log_ret) - 1.0
 
@@ -115,6 +119,7 @@ def load_core_outputs(output_dir: Path = OUTPUT_DIR) -> dict[str, pd.DataFrame]:
     - Safe. This is an ex-post analysis loader.
     """
 
+    oos_holdings_path = output_dir / "oos_holdings.csv"
     return {
         "saa_weights": load_output_csv(output_dir / "saa_weights.csv"),
         "saa_returns": pd.read_csv(output_dir / "saa_returns.csv", parse_dates=["Date"]).set_index("Date"),
@@ -124,6 +129,11 @@ def load_core_outputs(output_dir: Path = OUTPUT_DIR) -> dict[str, pd.DataFrame]:
         "bm2_returns": pd.read_csv(output_dir / "bm2_returns.csv", parse_dates=["Date"]).set_index("Date"),
         "oos_weights": pd.read_csv(output_dir / "oos_weights.csv", parse_dates=["decision_date"]).set_index("decision_date"),
         "oos_returns": pd.read_csv(output_dir / "oos_returns.csv", parse_dates=["date", "decision_date"]).set_index("date"),
+        "oos_holdings": (
+            pd.read_csv(oos_holdings_path, parse_dates=["date"]).set_index("date")
+            if oos_holdings_path.exists()
+            else pd.DataFrame(columns=ALL_SAA, dtype=float)
+        ),
         "oos_regimes": pd.read_csv(output_dir / "oos_regimes.csv", parse_dates=["date"]).set_index("date"),
     }
 
@@ -150,7 +160,10 @@ def decision_weights_to_daily_target(
       until the next rebalance date.
     """
 
-    weights = decision_weights.loc[:, ALL_SAA].copy()
+    asset_columns = [asset for asset in ALL_TAA if asset in decision_weights.columns]
+    if not asset_columns:
+        asset_columns = ALL_SAA
+    weights = decision_weights.reindex(columns=asset_columns).fillna(0.0).copy()
     expanded = forward_propagate(weights.reindex(weights.index.union(daily_index)).sort_index())
     return expanded.reindex(daily_index).fillna(0.0)
 
@@ -186,7 +199,7 @@ def decision_weights_to_daily_holdings(
 
     Inputs:
     - `decision_weights`: rebalance-date target dataframe indexed by decision
-      date and containing `ALL_SAA` columns.
+      date and containing SAA or expanded TAA columns.
     - `asset_returns`: simple asset returns indexed by realized trading dates.
 
     Outputs:
@@ -203,10 +216,13 @@ def decision_weights_to_daily_holdings(
     if decision_weights.empty:
         return pd.DataFrame(columns=ALL_SAA, dtype=float)
 
-    sparse_targets = decision_weights.loc[:, ALL_SAA].copy()
+    asset_columns = [asset for asset in ALL_TAA if asset in decision_weights.columns]
+    if not asset_columns:
+        asset_columns = ALL_SAA
+    sparse_targets = decision_weights.reindex(columns=asset_columns).fillna(0.0).copy()
     decision_index = pd.DatetimeIndex(sparse_targets.index)
     holdings_rows: list[pd.Series] = []
-    daily_returns = asset_returns.loc[:, ALL_SAA].dropna(how="all")
+    daily_returns = asset_returns.reindex(columns=asset_columns).dropna(how="all")
 
     for idx, decision_date in enumerate(decision_index):
         next_decision = decision_index[idx + 1] if idx + 1 < len(decision_index) else None
@@ -214,16 +230,16 @@ def decision_weights_to_daily_holdings(
         if next_decision is not None:
             period_index = period_index[period_index <= next_decision]
 
-        current_weights = sparse_targets.loc[decision_date].astype(float).reindex(ALL_SAA).fillna(0.0)
+        current_weights = sparse_targets.loc[decision_date].astype(float).reindex(asset_columns).fillna(0.0)
         for date in period_index:
             holdings_rows.append(current_weights.rename(date))
-            gross = 1.0 + daily_returns.loc[date].reindex(ALL_SAA).fillna(0.0)
+            gross = 1.0 + daily_returns.loc[date].reindex(asset_columns).fillna(0.0)
             post_move_value = current_weights * gross
             denominator = float(post_move_value.sum())
             current_weights = post_move_value / denominator if denominator > 0 else current_weights.copy()
 
     if not holdings_rows:
-        return pd.DataFrame(columns=ALL_SAA, dtype=float)
+        return pd.DataFrame(columns=asset_columns, dtype=float)
     return pd.DataFrame(holdings_rows).astype(float)
 
 
@@ -682,10 +698,11 @@ def tier_weight_frame(weights: pd.DataFrame) -> pd.DataFrame:
     """Aggregate a weight dataframe into Whitmore tier totals.
 
     Inputs:
-    - `weights`: asset-weight dataframe containing `ALL_SAA` columns.
+    - `weights`: asset-weight dataframe containing SAA or expanded TAA columns.
 
     Outputs:
-    - Dataframe with `Core`, `Satellite`, and `Non-Traditional` columns.
+    - Dataframe with `Core`, `Satellite`, `Non-Traditional`, and
+      `Opportunistic` columns.
 
     Citation:
     - Whitmore IPS aggregate constraint structure.
@@ -695,12 +712,13 @@ def tier_weight_frame(weights: pd.DataFrame) -> pd.DataFrame:
       already-fixed portfolio weights.
     """
 
-    aligned = weights.reindex(columns=ALL_SAA).fillna(0.0)
+    aligned = weights.reindex(columns=ALL_TAA).fillna(0.0)
     return pd.DataFrame(
         {
             "Core": aligned.loc[:, CORE].sum(axis=1),
             "Satellite": aligned.loc[:, SATELLITE].sum(axis=1),
             "Non-Traditional": aligned.loc[:, NONTRAD].sum(axis=1),
+            "Opportunistic": aligned.loc[:, OPPORTUNISTIC].sum(axis=1),
         },
         index=aligned.index,
     )

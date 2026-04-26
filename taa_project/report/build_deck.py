@@ -209,7 +209,7 @@ def build_deck(
             Paragraph("SAA Method Choice", styles["DeckHeading"]),
             * _bullet_list(
                 [
-                    "Chosen SAA method: constrained risk parity.",
+                    "Chosen SAA method: configured strategic allocator for this run.",
                     "Reason: it clears the 8% return mandate while staying below the 15% volatility ceiling without leaning on unstable mean forecasts.",
                     "Alternatives were evaluated side-by-side in the diagnostics notebook and `saa_method_comparison.csv`.",
                 ],

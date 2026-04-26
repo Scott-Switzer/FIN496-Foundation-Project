@@ -74,10 +74,12 @@ from taa_project.signals.regime_hmm import (
     MIN_TRAIN_OBSERVATIONS,
     build_features,
     classify_states,
+    compute_risk_score,
     fit_hmm,
-    regime_tilt_from_label,
+    risk_score_mu,
 )
 from taa_project.signals.trend_faber import trend_score
+from taa_project.signals.vix_yield_curve import vix_yield_curve_diagnostics
 from taa_project.signals.vol_timesfm import (
     TimesFMForecaster,
     compute_vol_and_direction_signals,
@@ -164,6 +166,73 @@ SLEEVE_BUCKETS = {
     "opportunistic_digital": ["ETHEREUM"],
     "opportunistic_fx": ["AUD", "CAD", "GBP_POUND", "EURO", "CNY", "SHEKEL", "USDJPY"],
 }
+
+# Defense gate thresholds — all three must fire for 2 consecutive months
+# before the strategy enters defensive positioning.
+_DEFENSE_PSTRESS_THRESHOLD = 0.70   # HMM stress posterior required
+_DEFENSE_MACRO_LOOKBACK_DAYS = 21   # look-back for VIX/HY-OAS trend check
+_DEFENSE_HYSTERESIS_MONTHS = 2      # consecutive months required to enter defense
+
+# Vol-budget scaling: base budget × scale = active budget
+_RISK_ON_VOL_SCALE = 1.45           # +45 % at risk_score = +1  → ~14.5 % at base 10 %
+_DEFENSIVE_VOL_SCALE = 0.65         # −35 % when defense active → ~6.5 % at base 10 %
+
+
+def _is_defense_signal_active(
+    p_stress: float,
+    spxt_trend_score: float,
+    fred_history: pd.DataFrame,
+    decision_date: pd.Timestamp,
+) -> bool:
+    """Return True when all three defensive-entry conditions fire simultaneously.
+
+    Gate requires:
+    1. HMM stress posterior > _DEFENSE_PSTRESS_THRESHOLD (0.70).
+    2. SPXT trend score < 0 (price below 200-day MA equivalent).
+    3. VIX or HY OAS rising over the past _DEFENSE_MACRO_LOOKBACK_DAYS days.
+
+    Point-in-time safety: all inputs observed on or before decision_date.
+    """
+    if float(p_stress) <= _DEFENSE_PSTRESS_THRESHOLD:
+        return False
+    if float(spxt_trend_score) >= 0.0:
+        return False
+    # Check VIX or HY-OAS worsening (rising) over the macro lookback window.
+    history_slice = fred_history.loc[:decision_date].tail(_DEFENSE_MACRO_LOOKBACK_DAYS)
+    if len(history_slice) < 2:
+        return True  # insufficient history — admit gate on other two conditions
+    vix_rising = False
+    if "VIXCLS" in history_slice.columns:
+        vix_start = float(history_slice["VIXCLS"].dropna().iloc[0]) if not history_slice["VIXCLS"].dropna().empty else np.nan
+        vix_end = float(history_slice["VIXCLS"].dropna().iloc[-1]) if not history_slice["VIXCLS"].dropna().empty else np.nan
+        vix_rising = pd.notna(vix_start) and pd.notna(vix_end) and vix_end > vix_start
+    hy_rising = False
+    if "BAMLH0A0HYM2" in history_slice.columns:
+        hy_start = float(history_slice["BAMLH0A0HYM2"].dropna().iloc[0]) if not history_slice["BAMLH0A0HYM2"].dropna().empty else np.nan
+        hy_end = float(history_slice["BAMLH0A0HYM2"].dropna().iloc[-1]) if not history_slice["BAMLH0A0HYM2"].dropna().empty else np.nan
+        hy_rising = pd.notna(hy_start) and pd.notna(hy_end) and hy_end > hy_start
+    return vix_rising or hy_rising
+
+
+def _vol_budget_from_risk_score(
+    risk_score: float,
+    defense_active: bool,
+    base_vol: float,
+    vol_ceiling: float,
+) -> float:
+    """Scale the volatility budget continuously with the risk score.
+
+    When defense_active the budget is capped at 65 % of base.
+    When risk_on (risk_score > 0) the budget rises up to 145 % of base,
+    subject to the IPS VOL_CEILING.
+    """
+    if defense_active:
+        return min(base_vol * _DEFENSIVE_VOL_SCALE, vol_ceiling)
+    if risk_score > 0.0:
+        scale = 1.0 + (_RISK_ON_VOL_SCALE - 1.0) * float(risk_score)
+    else:
+        scale = 1.0 + (1.0 - _DEFENSIVE_VOL_SCALE) * float(risk_score)  # linearly shrinks
+    return min(base_vol * scale, vol_ceiling)
 
 
 @dataclass(frozen=True)
@@ -397,6 +466,8 @@ def build_signal_bundle_at_date(
     timesfm_cache_path: Path | None,
     hmm_model_cache: object | None,
     hmm_states: int,
+    fred_history: pd.DataFrame | None = None,
+    regime_signal_source: str = "hmm",
 ) -> tuple[SignalBundle, object | None]:
     """Construct the four-layer signal bundle at one monthly decision date.
 
@@ -441,16 +512,43 @@ def build_signal_bundle_at_date(
         except Exception:
             model = hmm_model_cache
 
-    regime_label = "neutral"
     regime_probs = pd.Series({"p_risk_on": np.nan, "p_neutral": np.nan, "p_stress": np.nan}, dtype=float)
     if model is not None:
         classified = classify_states(model, fred_features.loc[:decision_date])
         latest = classified.iloc[-1]
-        regime_label = str(latest["regime"])
         regime_probs = latest.drop(labels=["regime"]).astype(float)
 
     trend = trend_signals.loc[:decision_date].iloc[-1].reindex(ALL_SAA).fillna(0.0)
     momo = momo_signals.loc[:decision_date].iloc[-1].reindex(ALL_SAA).fillna(0.0)
+
+    p_stress = float(regime_probs.get("p_stress", 0.0)) if not regime_probs.isna().all() else 0.0
+    spxt_trend = float(trend.get("SPXT", 0.0))
+    spxt_momo = float(momo.get("SPXT", 0.0))
+    regime_label = "neutral"
+    if regime_signal_source == "vix_curve":
+        source_fred = fred_history if fred_history is not None else fred_features
+        vix_curve = vix_yield_curve_diagnostics(source_fred, decision_date)
+        raw_risk_score = (
+            0.5 * spxt_trend
+            + 0.3 * spxt_momo
+            + 0.2 * float(vix_curve["base_risk_score"])
+        )
+        curve_penalty = float(vix_curve["curve_penalty"])
+        risk_score = raw_risk_score * curve_penalty if raw_risk_score > 0.0 else raw_risk_score
+        risk_score = float(np.clip(risk_score, -1.0, 1.0))
+        regime_label = str(vix_curve["regime_label"])
+        regime_probs = pd.Series(
+            {
+                "p_risk_on": 1.0 if regime_label == "risk_on" else 0.0,
+                "p_neutral": 1.0 if regime_label == "neutral" else 0.0,
+                "p_stress": 1.0 if regime_label == "stress" else 0.0,
+            },
+            dtype=float,
+        )
+    else:
+        risk_score = compute_risk_score(p_stress, spxt_trend, spxt_momo)
+        if not regime_probs.isna().all():
+            regime_label = str(regime_probs.idxmax()).replace("p_", "")
 
     if use_timesfm:
         timesfm_frame = compute_vol_and_direction_signals(
@@ -470,6 +568,7 @@ def build_signal_bundle_at_date(
 
     bundle = SignalBundle(
         regime_probs=regime_probs,
+        risk_score=risk_score,
         regime_label=regime_label,
         trend=trend,
         momo=momo,
@@ -1019,6 +1118,8 @@ def run_walkforward(
     current_guardrail_multiplier = 1.0
     daily_risk_history: list[float] = []
     daily_risk_state = {"active": False}
+    defense_signal_streak: int = 0
+    defense_active: bool = False
     breach_log_path = output_dir / "breaches.log"
 
     for index, decision_date in enumerate(decision_dates):
@@ -1039,9 +1140,34 @@ def run_walkforward(
             timesfm_cache_path=timesfm_cache_path if timesfm_enabled else None,
             hmm_model_cache=current_hmm_model,
             hmm_states=hmm_states,
+            fred_history=fred,
+            regime_signal_source=config.regime_signal_source,
         )
 
-        regime_tilt = regime_tilt_from_label(signal_bundle.regime_label).reindex(ALL_SAA).fillna(0.0)
+        # Defense gate hysteresis: require _DEFENSE_HYSTERESIS_MONTHS consecutive
+        # months of gate firing before entering defensive mode, and exit immediately
+        # when the gate clears (asymmetric: slow in, fast out).
+        p_stress_now = float(signal_bundle.regime_probs.get("p_stress", 0.0))
+        spxt_trend_now = float(signal_bundle.trend.get("SPXT", 0.0))
+        gate_fires = _is_defense_signal_active(
+            p_stress=p_stress_now,
+            spxt_trend_score=spxt_trend_now,
+            fred_history=hmm_features,
+            decision_date=pd.Timestamp(decision_date),
+        )
+        if gate_fires:
+            defense_signal_streak = min(defense_signal_streak + 1, _DEFENSE_HYSTERESIS_MONTHS)
+        else:
+            defense_signal_streak = 0
+            defense_active = False
+        if defense_signal_streak >= _DEFENSE_HYSTERESIS_MONTHS:
+            defense_active = True
+
+        # Continuous risk-score mu: replaces the old argmax regime-tilt path.
+        # risk_score in [-1, +1] is mapped to per-asset expected-return adjustments
+        # via RISK_SCORE_LOADINGS; defensive scoring shifts allocations toward bonds
+        # and safe-havens without a discrete regime-label cliff.
+        regime_mu = risk_score_mu(signal_bundle.risk_score).reindex(ALL_SAA).fillna(0.0)
 
         # Macro factor signal: real-yield tilt, credit-premium tilt, crypto momentum.
         # Computed from the full lagged FRED panel and the price history up to
@@ -1054,7 +1180,7 @@ def run_walkforward(
 
         from taa_project.optimizer.cvxpy_opt import ensemble_score as _ensemble_score
         signal_score = _ensemble_score(
-            regime_tilt=regime_tilt,
+            regime_mu=regime_mu,
             trend_sig=signal_bundle.trend,
             momo_sig=signal_bundle.momo,
             timesfm_mu=signal_bundle.timesfm_mu,
@@ -1067,11 +1193,13 @@ def run_walkforward(
             decision_date=pd.Timestamp(decision_date),
             timesfm_sigma=signal_bundle.timesfm_sigma,
         )
+        # Derive a human-readable regime label for logging and BL stress views.
+        regime_label_for_log = "stress" if defense_active else ("neutral" if signal_bundle.risk_score < 0.0 else "risk_on")
         if config.use_bl_stress_views:
             mu_bl = bl_with_stress_views(
                 policy_weights=pd.Series(BM2_WEIGHTS, dtype=float),
                 covariance=covariance,
-                regime_label=signal_bundle.regime_label,
+                regime_label=regime_label_for_log,
                 stress_equity_shock_sigmas=config.bl_stress_shock,
                 equity_assets=RISKY_ASSETS_FOR_BL_STRESS,
             ).reindex(ALL_SAA).fillna(0.0)
@@ -1093,14 +1221,14 @@ def run_walkforward(
                         }
                     )
                     current_guardrail_multiplier = guardrail_multiplier
-        active_vol_budget = (
-            config.vol_budget_by_regime[signal_bundle.regime_label]
-            if config.vol_budget_by_regime is not None
-            and signal_bundle.regime_label in config.vol_budget_by_regime
-            else vol_budget
+        active_vol_budget = _vol_budget_from_risk_score(
+            risk_score=signal_bundle.risk_score,
+            defense_active=defense_active,
+            base_vol=vol_budget,
+            vol_ceiling=VOL_CEILING,
         )
         active_vol_budget *= guardrail_multiplier
-        print(f"[SOLVE] vb={active_vol_budget} regime={signal_bundle.regime_label}")
+        print(f"[SOLVE] vb={active_vol_budget:.4f} risk_score={signal_bundle.risk_score:.3f} defense={defense_active}")
         available_assets = availability.loc[:decision_date].iloc[-1].reindex(ALL_TAA).fillna(0.0)
         optimizer_available_assets = available_assets.reindex(ALL_SAA).fillna(0.0)
         active_universe = [asset for asset in ALL_SAA if bool(optimizer_available_assets.get(asset, 0.0))]
@@ -1172,7 +1300,10 @@ def run_walkforward(
         regime_row = {
             "date": pd.Timestamp(decision_date),
             "fold_id": fold_spec.fold_id,
-            "regime": signal_bundle.regime_label,
+            "regime": regime_label_for_log,
+            "risk_score": signal_bundle.risk_score,
+            "defense_active": int(defense_active),
+            "defense_signal_streak": defense_signal_streak,
             "optimizer_status": solve_result.status,
             "used_fallback": int(solve_result.used_fallback),
             "turnover": solve_result.turnover,
@@ -1200,7 +1331,7 @@ def run_walkforward(
             available_assets=available_assets,
             fold_id=fold_spec.fold_id,
             decision_date=pd.Timestamp(decision_date),
-            regime_label=signal_bundle.regime_label,
+            regime_label=regime_label_for_log,
             compliance_log_path=output_dir / "taa_compliance_rebalances.csv",
             realized_history=daily_risk_history,
             daily_risk_state=daily_risk_state,

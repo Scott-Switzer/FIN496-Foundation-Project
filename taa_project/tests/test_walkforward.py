@@ -109,15 +109,17 @@ def test_run_walkforward_raises_when_timesfm_requested_but_unavailable(monkeypat
         )
 
 
-def test_run_walkforward_uses_regime_specific_vol_budget(monkeypatch, tmp_path) -> None:
+def test_run_walkforward_risk_score_expands_vol_budget(monkeypatch, tmp_path) -> None:
+    """Vol budget rises above base when risk_score > 0 (risk-on signal)."""
     captured: list[float] = []
 
     def fake_build_signal_bundle_at_date(**kwargs):
         zero = pd.Series(0.0, index=ALL_SAA, dtype=float)
-        probs = pd.Series({"risk_on": 0.1, "neutral": 0.2, "stress": 0.7}, dtype=float)
+        probs = pd.Series({"p_risk_on": 0.8, "p_neutral": 0.1, "p_stress": 0.1}, dtype=float)
+        # risk_score = 0.5*1.0 + 0.3*1.0 - 0.2*0.1 = 0.78 (risk-on)
         bundle = SignalBundle(
             regime_probs=probs,
-            regime_label="stress",
+            risk_score=0.78,
             trend=zero,
             momo=zero,
             timesfm_mu=zero,
@@ -151,12 +153,13 @@ def test_run_walkforward_uses_regime_specific_vol_budget(monkeypatch, tmp_path) 
         embargo_business_days=21,
         use_timesfm=False,
         vol_budget=0.10,
-        ensemble_config=EnsembleConfig(vol_budget_by_regime={"risk_on": 0.10, "neutral": 0.08, "stress": 0.05}),
         output_dir=tmp_path,
     )
 
     assert captured
-    assert set(captured) == {0.05}
+    # risk_score=0.78 should expand vol budget above the 0.10 base
+    assert all(vb > 0.10 for vb in captured), f"Expected vol budgets > 0.10, got {captured}"
+    assert all(vb <= 0.15 for vb in captured), f"Vol budget must not exceed VOL_CEILING=0.15, got {captured}"
 
 
 def test_estimate_taa_covariance_annualizes_historical_variance() -> None:

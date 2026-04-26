@@ -141,6 +141,7 @@ class EnsembleConfig:
     nested_risk_config: NestedRiskConfig | None = None
     use_bl_stress_views: bool = False
     bl_stress_shock: float = 1.0
+    regime_signal_source: str = "hmm"
     dd_guardrail_config: DrawdownGuardrailConfig = field(default_factory=DrawdownGuardrailConfig)
 
     def __post_init__(self) -> None:
@@ -154,6 +155,8 @@ class EnsembleConfig:
             raise ValueError(f"cvar_lookback_days must lie in [1, {DEFAULT_CVAR_LOOKBACK_DAYS}].")
         if self.bl_stress_shock < 0.0:
             raise ValueError("bl_stress_shock must be non-negative.")
+        if self.regime_signal_source not in {"hmm", "vix_curve"}:
+            raise ValueError("regime_signal_source must be either 'hmm' or 'vix_curve'.")
 
 
 @dataclass(frozen=True)
@@ -1036,31 +1039,31 @@ def solve_taa(
 
 
 def ensemble_score(
-    regime_tilt: pd.Series,
-    trend_sig: pd.Series,
-    momo_sig: pd.Series,
-    timesfm_mu: pd.Series,
+    regime_mu: pd.Series | None = None,
+    trend_sig: pd.Series | None = None,
+    momo_sig: pd.Series | None = None,
+    timesfm_mu: pd.Series | None = None,
     macro_factor_mu: pd.Series | None = None,
     config: EnsembleConfig | None = None,
+    regime_tilt: pd.Series | None = None,
 ) -> pd.Series:
     """Blend the five signal layers into an annualized `mu` proxy.
 
     Inputs:
-    - `regime_tilt`: regime-layer tilt vector.
+    - `regime_mu`: per-asset expected-return adjustment from the HMM/risk-score
+      layer (output of ``risk_score_mu``).  The HMM is a soft risk modifier,
+      not a hard trigger — its contribution is scaled by ``regime_scale``.
+    - `regime_tilt`: backward-compatible alias for ``regime_mu``.
     - `trend_sig`: smooth Faber trend score in `[-1, +1]`.
     - `momo_sig`: ADM momentum score in `[-1, +1]`.
     - `timesfm_mu`: TimesFM annualized expected-return forecast.
     - `macro_factor_mu`: asset-specific macro factor signal (real yield,
-      credit premium, crypto momentum) from ``macro_factor.py``.  If None
-      or missing, the macro_factor_weight is redistributed to regime.
+      credit premium, crypto momentum) from ``macro_factor.py``.  If None,
+      the macro_factor_weight is redistributed to the regime layer.
     - `config`: optional signal-ensemble config for ablation studies.
 
     Outputs:
     - Annualized expected-return proxy per asset.
-
-    Citation:
-    - Whitmore Task 5 optimizer specification.
-    - Macro factor signals: Erb & Harvey (2013), Gilchrist & Zakrajsek (2012).
 
     Point-in-time safety:
     - Safe. This is an algebraic combination of already point-in-time-safe
@@ -1068,26 +1071,29 @@ def ensemble_score(
     """
 
     cfg = EnsembleConfig() if config is None else config
-    macro_mu = (
+    regime_vector = regime_mu if regime_mu is not None else regime_tilt
+    if regime_vector is None:
+        regime_vector = pd.Series(0.0, index=ALL_SAA, dtype=float)
+    trend_vector = trend_sig if trend_sig is not None else pd.Series(0.0, index=ALL_SAA, dtype=float)
+    momo_vector = momo_sig if momo_sig is not None else pd.Series(0.0, index=ALL_SAA, dtype=float)
+    timesfm_vector = timesfm_mu if timesfm_mu is not None else pd.Series(0.0, index=ALL_SAA, dtype=float)
+    macro_mu_vec = (
         macro_factor_mu.reindex(ALL_SAA).fillna(0.0)
         if macro_factor_mu is not None
         else pd.Series(0.0, index=ALL_SAA, dtype=float)
     )
-    # When macro signal is unavailable, its weight folds into the regime layer.
     regime_w = cfg.regime_weight + (cfg.macro_factor_weight if macro_factor_mu is None else 0.0)
-    # When TimesFM is disabled (all-zero mu), redistribute its weight equally
-    # into trend and momentum rather than leaving it dead.
-    timesfm_aligned = timesfm_mu.reindex(ALL_SAA).fillna(0.0)
+    timesfm_aligned = timesfm_vector.reindex(ALL_SAA).fillna(0.0)
     timesfm_active = cfg.timesfm_weight > 0.0 and not bool((timesfm_aligned == 0.0).all())
     timesfm_w = cfg.timesfm_weight if timesfm_active else 0.0
     extra_per_signal = (cfg.timesfm_weight - timesfm_w) / 2.0
     trend_w = cfg.trend_weight + extra_per_signal
     momo_w = cfg.momo_weight + extra_per_signal
     score = (
-        regime_w * regime_tilt * cfg.regime_scale
-        + trend_w * trend_sig * cfg.trend_scale
-        + momo_w * momo_sig * cfg.momo_scale
+        regime_w * regime_vector.reindex(ALL_SAA).fillna(0.0) * cfg.regime_scale
+        + trend_w * trend_vector * cfg.trend_scale
+        + momo_w * momo_vector * cfg.momo_scale
         + timesfm_w * timesfm_aligned
-        + cfg.macro_factor_weight * macro_mu * cfg.macro_scale
+        + cfg.macro_factor_weight * macro_mu_vec * cfg.macro_scale
     )
     return score.reindex(ALL_SAA).fillna(0.0)

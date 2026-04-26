@@ -370,7 +370,31 @@ def walk_forward_regimes(
     return pd.concat(outputs).sort_index() if outputs else pd.DataFrame()
 
 
-REGIME_TILT = {
+# Per-asset sensitivity to the continuous risk score.
+# Loadings = (risk_on tilt) - (stress tilt) from the former REGIME_TILT dict,
+# capturing how much each sleeve should tilt toward or away from risk as
+# risk_score moves from -1 (max defensive) to +1 (max risk-on).
+# Positive  → asset benefits from risk-on environment.
+# Negative  → asset benefits from risk-off / defensive environment.
+RISK_SCORE_LOADINGS: dict[str, float] = {
+    "SPXT":          +0.17,   # primary risk-on beneficiary (0.42 - 0.25)
+    "FTSE100":       +0.05,   # (0.05 - 0.00)
+    "LBUSTRUU":      -0.20,   # primary risk-off asset (0.05 - 0.25)
+    "BROAD_TIPS":    -0.15,   # (0.00 - 0.15)
+    "B3REITT":       +0.10,   # (0.10 - 0.00)
+    "XAU":           -0.10,   # gold is partially defensive (0.10 - 0.20)
+    "NIKKEI225":     +0.08,   # (0.08 - 0.00)
+    "SILVER_FUT":    +0.05,   # (0.05 - 0.00)
+    "CSI300_CHINA":  +0.08,   # (0.08 - 0.00)
+    "BITCOIN":       +0.05,   # (0.05 - 0.00)
+    "CHF_FRANC":     -0.13,   # safe-haven currency (0.02 - 0.15)
+}
+
+# Backward-compatible hard-regime tilt templates used by the older
+# ``run_backtest.py`` path and by tests that validate smooth interpolation.
+# Newer walk-forward code prefers the continuous ``compute_risk_score`` /
+# ``risk_score_mu`` path below.
+REGIME_TILT: dict[str, dict[str, float]] = {
     "risk_on": {
         "SPXT": 0.42,
         "FTSE100": 0.05,
@@ -385,17 +409,17 @@ REGIME_TILT = {
         "CHF_FRANC": 0.02,
     },
     "neutral": {
-        "SPXT": 0.35,
-        "FTSE100": 0.03,
-        "LBUSTRUU": 0.15,
+        "SPXT": 0.40,
+        "FTSE100": 0.00,
+        "LBUSTRUU": 0.10,
         "BROAD_TIPS": 0.05,
-        "B3REITT": 0.08,
+        "B3REITT": 0.10,
         "XAU": 0.15,
         "NIKKEI225": 0.05,
-        "SILVER_FUT": 0.03,
+        "SILVER_FUT": 0.05,
         "CSI300_CHINA": 0.05,
-        "BITCOIN": 0.03,
-        "CHF_FRANC": 0.03,
+        "BITCOIN": 0.00,
+        "CHF_FRANC": 0.05,
     },
     "stress": {
         "SPXT": 0.25,
@@ -413,22 +437,140 @@ REGIME_TILT = {
 }
 
 
-def regime_tilt_from_label(regime_label: str) -> pd.Series:
-    """Return the configured regime tilt vector for a regime label.
+def regime_tilt_from_probs(regime_probs: pd.Series) -> pd.Series:
+    """Interpolate hard-regime tilt templates by posterior probabilities.
 
     Inputs:
-    - `regime_label`: interpreted state label such as `risk_on`.
+    - ``regime_probs``: Series with ``p_risk_on``, ``p_neutral``, and
+      ``p_stress`` entries. Missing probabilities are treated as zero.
 
     Outputs:
-    - Weight-hint series indexed by SAA sleeves.
-
-    Citation:
-    - Internal Whitmore TAA scaffold and IPS band structure.
+    - Per-asset tilt vector whose weights sum to one when probabilities do.
 
     Point-in-time safety:
-    - Safe. The tilt is a static configuration lookup conditioned on the
-      current regime label only.
+    - Safe. Deterministic function of already-computed regime probabilities.
     """
 
-    tilt = REGIME_TILT.get(regime_label, REGIME_TILT["neutral"])
-    return pd.Series(tilt, dtype=float)
+    tilt = pd.Series(0.0, index=next(iter(REGIME_TILT.values())).keys(), dtype=float)
+    for label, template in REGIME_TILT.items():
+        probability = float(regime_probs.get(f"p_{label}", 0.0))
+        tilt = tilt.add(probability * pd.Series(template, dtype=float), fill_value=0.0)
+    return tilt
+
+
+def regime_tilt_from_label(regime_label: str) -> pd.Series:
+    """Return the hard-regime tilt template for one interpreted label."""
+
+    template = REGIME_TILT.get(str(regime_label), REGIME_TILT["neutral"])
+    return pd.Series(template, dtype=float)
+
+
+def recovery_blended_regime(
+    regime_probs: pd.Series,
+    spxt_trend_score: float,
+    spxt_momo_score: float,
+    risk_on_conviction_floor: float = 0.40,
+    max_stress_shift: float = 0.50,
+) -> tuple[pd.Series, str]:
+    """Blend HMM probabilities with equity recovery confirmation.
+
+    Inputs:
+    - ``regime_probs``: HMM posterior probabilities.
+    - ``spxt_trend_score``: SPXT trend score in ``[-1, +1]``.
+    - ``spxt_momo_score``: SPXT momentum score in ``[-1, +1]``.
+    - ``risk_on_conviction_floor``: minimum risk-on posterior that prevents a
+      low-conviction exit.
+    - ``max_stress_shift``: maximum share of stress probability that can be
+      reassigned to risk-on when both SPXT signals confirm recovery.
+
+    Outputs:
+    - Tuple ``(adjusted_probabilities, label)``.
+
+    Point-in-time safety:
+    - Safe. Uses only probabilities and SPXT signals already computed at the
+      decision date.
+    """
+
+    probs = regime_probs.reindex(["p_risk_on", "p_neutral", "p_stress"]).fillna(0.0).astype(float)
+    total = float(probs.sum())
+    if total <= 0.0:
+        probs = pd.Series({"p_risk_on": 0.0, "p_neutral": 1.0, "p_stress": 0.0}, dtype=float)
+    else:
+        probs = probs / total
+
+    trend_confirmation = max(0.0, float(spxt_trend_score))
+    momo_confirmation = max(0.0, float(spxt_momo_score))
+    recovery_strength = float(np.sqrt(trend_confirmation * momo_confirmation))
+    if recovery_strength > 0.0:
+        shift = min(float(probs["p_stress"]) * max_stress_shift * recovery_strength, float(probs["p_stress"]))
+        probs.loc["p_stress"] -= shift
+        probs.loc["p_risk_on"] += shift
+        probs = probs / float(probs.sum())
+
+    if float(probs["p_risk_on"]) >= risk_on_conviction_floor:
+        label = "risk_on"
+    else:
+        label = str(probs.idxmax()).replace("p_", "")
+    return probs, label
+
+
+def compute_risk_score(
+    p_stress: float,
+    spxt_trend_score: float,
+    spxt_momo_score: float,
+) -> float:
+    """Compute a continuous risk score from HMM stress posterior and market signals.
+
+    Inputs:
+    - `p_stress`: HMM posterior probability for the stress state.
+    - `spxt_trend_score`: smooth Faber trend score for SPXT in `[-1, +1]`.
+    - `spxt_momo_score`: ADM cross-sectional momentum rank for SPXT in `[-1, +1]`.
+
+    Outputs:
+    - Scalar risk score clipped to `[-1, +1]`.  Positive values indicate a
+      risk-on environment; negative values indicate a defensive environment.
+
+    Formula:
+        risk_score = 0.5 * trend + 0.3 * momentum - 0.2 * p_stress
+
+    The weights balance faster-moving market signals (trend, momentum) against
+    the lagging macro HMM.  The HMM contributes only 0.2 so that macro feature
+    lag does not keep the score negative during equity recoveries.
+
+    Point-in-time safety:
+    - Safe. All three inputs are computed from data observed on or before the
+      current decision date.
+    """
+    raw = (
+        0.5 * float(spxt_trend_score)
+        + 0.3 * float(spxt_momo_score)
+        - 0.2 * float(p_stress)
+    )
+    return float(np.clip(raw, -1.0, 1.0))
+
+
+def risk_score_mu(risk_score: float) -> pd.Series:
+    """Convert a scalar risk score to a per-asset expected-return adjustment.
+
+    Inputs:
+    - `risk_score`: continuous risk score in `[-1, +1]` from `compute_risk_score`.
+
+    Outputs:
+    - Per-asset annualized expected-return proxy indexed to `RISK_SCORE_LOADINGS`
+      keys.  Positive entries push the optimizer toward that asset; negative
+      entries push away.
+
+    Each asset's contribution equals `risk_score × loading`, where `loading` is
+    the difference between the risk-on and defensive tilt for that sleeve.  The
+    calling `ensemble_score` applies an additional `regime_scale` multiplier so
+    the magnitude stays comparable with trend and momentum contributions.
+
+    Point-in-time safety:
+    - Safe. Deterministic function of `risk_score`.
+    """
+    from taa_project.config import ALL_SAA  # avoid circular import at module load
+    full = pd.Series(0.0, index=ALL_SAA, dtype=float)
+    for asset, loading in RISK_SCORE_LOADINGS.items():
+        if asset in full.index:
+            full[asset] = float(risk_score) * loading
+    return full

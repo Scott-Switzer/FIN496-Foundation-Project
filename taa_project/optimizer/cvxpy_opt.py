@@ -40,19 +40,23 @@ except ImportError:  # pragma: no cover - availability depends on local environm
 
 from taa_project.config import (
     ALL_SAA,
+    ALL_TAA,
     BM2_WEIGHTS,
     CORE,
     CORE_FLOOR,
     COST_PER_TURNOVER,
     NONTRAD,
     NONTRAD_CAP,
+    OPPORTUNISTIC,
+    OPPO_CAP,
+    OPPO_PER_ASSET,
     OUTPUT_DIR,
     SAA_TARGETS,
     SATELLITE,
     SATELLITE_CAP,
     SINGLE_SLEEVE_MAX,
     TARGET_VOL,
-    TAA_BANDS,
+    TAA_AUDIT_BANDS,
 )
 from taa_project.memory import guard_process_memory
 from taa_project.signals.dd_guardrail import DrawdownGuardrailConfig
@@ -73,7 +77,7 @@ OptimizationMode = Literal["saa_annual", "taa_monthly"]
 BREACH_LOG_PATH = OUTPUT_DIR / "breaches.log"
 OPTIMIZER_BREACHES_PATH = OUTPUT_DIR / "optimizer_breaches.csv"
 DIAGONAL_FLOOR = 1e-6
-DEFAULT_RISK_AVERSION = 3.0
+DEFAULT_RISK_AVERSION = 0.0
 DEFAULT_VOL_SLACK_PENALTY = 50.0
 DEFAULT_TURNOVER_SMOOTHING = 1e-10
 DEFAULT_CVAR_LOOKBACK_DAYS = 504
@@ -128,7 +132,7 @@ class EnsembleConfig:
     # This ensures macro is a refinement signal only, not a return driver.
     macro_scale: float = 0.20
     vol_budget_by_regime: dict[str, float] | None = None
-    use_dd_guardrail: bool = False
+    use_dd_guardrail: bool = True
     optimizer_mode: str = "vol"
     cvar_alpha: float = 0.95
     cvar_budget: float = 0.025
@@ -189,7 +193,7 @@ class OptimizationResult:
 
 
 def _empty_weights() -> pd.Series:
-    return pd.Series(0.0, index=ALL_SAA, dtype=float)
+    return pd.Series(0.0, index=ALL_TAA, dtype=float)
 
 
 def _idx(universe: list[str], subset: list[str]) -> list[int]:
@@ -208,8 +212,8 @@ def _full_weights(weights: pd.Series | np.ndarray, assets: list[str]) -> pd.Seri
 
 
 def _taa_bounds_for_assets(assets: list[str]) -> tuple[pd.Series, pd.Series]:
-    lower = pd.Series({asset: TAA_BANDS[asset][0] for asset in assets}, dtype=float)
-    upper = pd.Series({asset: min(TAA_BANDS[asset][1], SINGLE_SLEEVE_MAX) for asset in assets}, dtype=float)
+    lower = pd.Series({asset: TAA_AUDIT_BANDS[asset][0] for asset in assets}, dtype=float)
+    upper = pd.Series({asset: min(TAA_AUDIT_BANDS[asset][1], SINGLE_SLEEVE_MAX) for asset in assets}, dtype=float)
     return lower, upper
 
 
@@ -225,7 +229,7 @@ def _current_target_for_mode(mode: OptimizationMode) -> pd.Series:
     if mode == "saa_annual":
         return pd.Series(SAA_TARGETS, dtype=float).reindex(ALL_SAA).fillna(0.0)
     if mode == "taa_monthly":
-        return pd.Series(BM2_WEIGHTS, dtype=float).reindex(ALL_SAA).fillna(0.0)
+        return pd.Series(BM2_WEIGHTS, dtype=float).reindex(ALL_TAA).fillna(0.0)
     raise ValueError(f"Unsupported optimization mode: {mode}")
 
 
@@ -313,7 +317,7 @@ def _fallback_weights(
 
 
 def _ex_ante_vol(weights: pd.Series, cov_matrix: pd.DataFrame) -> float:
-    aligned_cov = cov_matrix.reindex(index=ALL_SAA, columns=ALL_SAA).fillna(0.0)
+    aligned_cov = cov_matrix.reindex(index=ALL_TAA, columns=ALL_TAA).fillna(0.0)
     covariance = aligned_cov.to_numpy(dtype=float)
     covariance = (covariance + covariance.T) / 2.0
     portfolio_variance = float(weights.to_numpy(dtype=float) @ covariance @ weights.to_numpy(dtype=float))
@@ -550,8 +554,8 @@ def _finalize_result(
     used_fallback: bool,
     message: str | None = None,
 ) -> OptimizationResult:
-    aligned_prev = prev_weights.reindex(ALL_SAA).fillna(0.0)
-    aligned_weights = weights.reindex(ALL_SAA).fillna(0.0)
+    aligned_prev = prev_weights.reindex(ALL_TAA).fillna(0.0)
+    aligned_weights = weights.reindex(ALL_TAA).fillna(0.0)
     turnover = float((aligned_weights - aligned_prev).abs().sum())
     return OptimizationResult(
         weights=aligned_weights,
@@ -680,8 +684,8 @@ def solve_taa_monthly_result(
       estimated using data dated on or before the current decision date.
     """
 
-    availability_mask = available.reindex(ALL_SAA).fillna(0.0).astype(bool)
-    universe = [asset for asset in ALL_SAA if availability_mask.get(asset, False)]
+    availability_mask = available.reindex(ALL_TAA).fillna(0.0).astype(bool)
+    universe = [asset for asset in ALL_TAA if availability_mask.get(asset, False)]
     if not universe:
         message = "No available assets for monthly TAA solve."
         _append_breach_log("taa_monthly", as_of_date, "empty_universe", message, breach_log_path)
@@ -730,6 +734,7 @@ def solve_taa_monthly_result(
     core_idx = _idx(universe, CORE)
     sat_idx = _idx(universe, SATELLITE)
     nontrad_idx = _idx(universe, NONTRAD)
+    oppo_idx = _idx(universe, OPPORTUNISTIC)
 
     try:
         if solve_config.optimizer_mode == "vol":
@@ -776,6 +781,8 @@ def solve_taa_monthly_result(
             constraints.append(cp.sum(weights[sat_idx]) <= SATELLITE_CAP)
         if nontrad_idx:
             constraints.append(cp.sum(weights[nontrad_idx]) <= NONTRAD_CAP)
+        if oppo_idx:
+            constraints.append(cp.sum(weights[oppo_idx]) <= OPPO_CAP)
 
         objective = cp.Maximize(
             mu @ weights
@@ -1021,4 +1028,4 @@ def ensemble_score(
         + cfg.timesfm_weight * timesfm_mu
         + cfg.macro_factor_weight * macro_mu * cfg.macro_scale
     )
-    return score.reindex(ALL_SAA).fillna(0.0)
+    return score.reindex(ALL_TAA).fillna(0.0)

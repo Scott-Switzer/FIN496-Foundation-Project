@@ -1,9 +1,9 @@
 # Addresses rubric criterion 1 (TAA signal design) by implementing the
-# 200-day Faber trend layer on observed trading histories.
+# 120-day Faber trend layer on observed trading histories.
 """Faber-style trend signals for the Whitmore TAA stack.
 
 This module implements the Task 4 trend layer:
-- 200-observation simple moving average per sleeve.
+- 120-observation simple moving average per sleeve.
 - Smooth score `tanh((price / SMA - 1) / sigma_60d)` using 60 observed daily
   return volatility.
 - Rolling windows are computed on each asset's observed trading history, not on
@@ -15,7 +15,7 @@ References:
 
 Point-in-time safety:
 - Safe. Every score at date `t` uses only the sleeve's current observed price,
-  its prior 200 observed prices for the SMA, and prior 60 observed returns for
+  its prior 120 observed prices for the SMA, and prior 60 observed returns for
   volatility. Missing dates remain `NaN`.
 """
 
@@ -25,7 +25,7 @@ import numpy as np
 import pandas as pd
 
 
-DEFAULT_TREND_WINDOW = 200
+DEFAULT_TREND_WINDOW = 120
 DEFAULT_VOL_WINDOW = 60
 EPSILON = 1e-8
 

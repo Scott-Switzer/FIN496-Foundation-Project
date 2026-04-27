@@ -3,7 +3,7 @@
 """Accelerating Dual Momentum signals for the Whitmore TAA stack.
 
 This module implements the Task 4 momentum layer:
-- 1/3/6/12-month blended total-return momentum using observed trading
+- 1/2/3/6-month blended total-return momentum using observed trading
   histories.
 - Cross-sectional ranking within sleeve buckets.
 - Absolute-momentum guardrail so assets with negative blended momentum cannot
@@ -24,7 +24,7 @@ import numpy as np
 import pandas as pd
 
 
-DEFAULT_WINDOWS = (21, 63, 126, 252)
+DEFAULT_WINDOWS = (21, 42, 63, 120)
 
 
 def _observed_period_return(series: pd.Series, periods: int) -> pd.Series:
@@ -76,7 +76,7 @@ def period_return(prices: pd.DataFrame, periods: int) -> pd.DataFrame:
 
 
 def adm_score(prices: pd.DataFrame, windows: tuple[int, ...] = DEFAULT_WINDOWS) -> pd.DataFrame:
-    """Compute the blended 1/3/6/12-month ADM total-return score.
+    """Compute the blended 1/2/3/6-month ADM total-return score.
 
     Inputs:
     - `prices`: asset price dataframe with gaps preserved as `NaN`.

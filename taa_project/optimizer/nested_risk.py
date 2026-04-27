@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
+from scipy.optimize import Bounds, minimize
 
 from taa_project.config import (
     ALL_SAA,
@@ -102,6 +103,35 @@ def _normalized_sleeve_bounds(assets: list[str], sleeve_weight: float) -> tuple[
     if bool((lower > upper + 1e-10).any()):
         raise ValueError("Nested sleeve bounds are infeasible after translating the outer TAA bands.")
     return lower, upper
+
+
+def _feasible_start(lower: np.ndarray, upper: np.ndarray) -> np.ndarray:
+    weights = lower.astype(float).copy()
+    residual = 1.0 - float(weights.sum())
+    if residual <= 0.0:
+        return weights / float(weights.sum())
+
+    room = upper - weights
+    room_total = float(room.clip(min=0.0).sum())
+    if room_total <= 0.0:
+        return weights / float(weights.sum())
+    weights += room.clip(min=0.0) / room_total * residual
+    return np.clip(weights, lower, upper)
+
+
+def _minimum_feasible_volatility(sigma: np.ndarray, lower: np.ndarray, upper: np.ndarray) -> float:
+    x0 = _feasible_start(lower, upper)
+    result = minimize(
+        lambda weights: float(weights @ sigma @ weights),
+        x0=x0,
+        method="SLSQP",
+        bounds=Bounds(lower, upper),
+        constraints=[{"type": "eq", "fun": lambda weights: float(np.sum(weights) - 1.0)}],
+        options={"maxiter": 1000, "ftol": 1e-12},
+    )
+    if not result.success:
+        return 0.0
+    return float(np.sqrt(max(float(result.fun), 0.0)))
 
 
 def _active_sleeve_weights(
@@ -216,6 +246,12 @@ def _solve_vol_sleeve(
     sigma = (sigma + sigma.T) / 2.0
     np.fill_diagonal(sigma, np.maximum(np.diag(sigma), DIAGONAL_FLOOR))
     lower_bounds, upper_bounds = _normalized_sleeve_bounds(assets, sleeve_weight)
+    lower_vector = lower_bounds.to_numpy(dtype=float)
+    upper_vector = upper_bounds.to_numpy(dtype=float)
+    effective_vol_target = max(
+        float(vol_target),
+        _minimum_feasible_volatility(sigma, lower_vector, upper_vector) + 1e-8,
+    )
 
     prev_sleeve = previous_weights.reindex(assets).fillna(0.0)
     prev_total = float(prev_sleeve.sum())
@@ -230,9 +266,9 @@ def _solve_vol_sleeve(
     turnover = cp.norm(weights - prev, 1)
     constraints = [
         cp.sum(weights) == 1.0,
-        weights >= lower_bounds.to_numpy(dtype=float),
-        weights <= upper_bounds.to_numpy(dtype=float),
-        cp.quad_form(weights, cp.psd_wrap(sigma)) <= vol_target**2,
+        weights >= lower_vector,
+        weights <= upper_vector,
+        cp.quad_form(weights, cp.psd_wrap(sigma)) <= effective_vol_target**2,
     ]
     objective = cp.Maximize(
         mu @ weights

@@ -23,15 +23,39 @@ DEFAULT_RANDOM_SEED = 42
 MAX_PROCESS_RSS_GB = 4.0
 
 # --------------------------------------------------------------------------
-# Asset universe (SAA only — Opportunistic handled separately)
+# Asset universe
 # --------------------------------------------------------------------------
 CORE        = ["SPXT", "FTSE100", "LBUSTRUU", "BROAD_TIPS"]
 SATELLITE   = ["B3REITT", "XAU", "SILVER_FUT", "NIKKEI225", "CSI300_CHINA"]
 NONTRAD     = ["BITCOIN", "CHF_FRANC"]
+OPPORTUNISTIC = [
+    "TA-125_ISRAEL",
+    "0_5Y_TIPS",
+    "BAIGTRUU_ASIACREDIT",
+    "BCEE1T_EUROAREA",
+    "I02923JP_JAPAN_BOND",
+    "LBEATREU_EUROBONDAGG",
+    "COPPERSPOT",
+    "NATURALGAS",
+    "COFFEE_FUT",
+    "COCOAINDEXSPOT",
+    "COTTON_FUT",
+    "WHEAT_SPOT",
+    "SOYBEAN_FUT",
+    "ETHEREUM",
+    "AUD",
+    "CAD",
+    "GBP_POUND",
+    "EURO",
+    "CNY",
+    "SHEKEL",
+    "USDJPY",
+]
 EQUITY_ASSETS = ["SPXT", "FTSE100", "NIKKEI225", "CSI300_CHINA"]
 # Expanded set for BL stress shock — includes real assets that crash with equities
 RISKY_ASSETS_FOR_BL_STRESS = EQUITY_ASSETS + ["SILVER_FUT", "XAU", "B3REITT"]
 ALL_SAA     = CORE + SATELLITE + NONTRAD
+ALL_TAA     = ALL_SAA + OPPORTUNISTIC
 
 SAA_BANDS: Dict[str, tuple[float, float]] = {
     "SPXT": (0.30, 0.45),
@@ -112,14 +136,20 @@ assert abs(sum(BM2_WEIGHTS.values()) - 1.0) < 1e-9, "BM2 must sum to 1"
 CORE_FLOOR       = 0.40
 SATELLITE_CAP    = 0.45
 NONTRAD_CAP      = 0.20      # amended 2026-02
-OPPO_CAP         = 0.15
+OPPO_CAP         = 0.08
 OPPO_PER_ASSET   = 0.05
 SINGLE_SLEEVE_MAX = 0.45
+
+TAA_AUDIT_BANDS: Dict[str, tuple[float, float]] = {
+    **TAA_BANDS,
+    **{asset: (0.0, OPPO_PER_ASSET) for asset in OPPORTUNISTIC},
+}
 
 # Risk
 VOL_CEILING      = 0.15
 MAX_DD           = 0.25
-TARGET_VOL       = 0.10      # internal target, < ceiling
+TARGET_VOL       = 0.12      # internal target, < ceiling
+REGIME_VOL_BUDGETS = {"stress": 0.08, "neutral": 0.12, "risk_on": 0.14}
 
 # Costs
 ROUNDTRIP_COST_BPS = 5

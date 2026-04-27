@@ -26,7 +26,7 @@ import numpy as np
 from tqdm import tqdm
 
 from taa_project.config import (
-    ALL_SAA, BM2_WEIGHTS, TAA_BANDS, COST_PER_TURNOVER, VOL_CEILING, MAX_DD, TARGET_VOL,
+    ALL_SAA, ALL_TAA, BM2_WEIGHTS, TAA_BANDS, COST_PER_TURNOVER, VOL_CEILING, MAX_DD, TARGET_VOL,
     OUTPUT_DIR,
 )
 from taa_project.data_loader import load_prices, load_fred, log_returns, availability_flag
@@ -36,6 +36,9 @@ from taa_project.signals.regime_hmm import (
 from taa_project.signals.trend_faber import trend_score
 from taa_project.signals.momentum_adm import adm_score, cross_sectional_rank
 from taa_project.optimizer.cvxpy_opt import solve_taa, ensemble_score
+from taa_project.backtest.walkforward import (
+    build_monthly_decision_dates,
+)
 
 
 SLEEVE_BUCKETS = {
@@ -43,7 +46,37 @@ SLEEVE_BUCKETS = {
     "fixed_inc":  ["LBUSTRUU", "BROAD_TIPS"],
     "real":       ["XAU", "SILVER_FUT", "B3REITT"],
     "nontrad":    ["BITCOIN", "CHF_FRANC"],
+    "opportunistic_equity": ["TA-125_ISRAEL"],
+    "opportunistic_fixed_income": [
+        "0_5Y_TIPS",
+        "BAIGTRUU_ASIACREDIT",
+        "BCEE1T_EUROAREA",
+        "I02923JP_JAPAN_BOND",
+        "LBEATREU_EUROBONDAGG",
+    ],
+    "opportunistic_commodities": [
+        "COPPERSPOT",
+        "NATURALGAS",
+        "COFFEE_FUT",
+        "COCOAINDEXSPOT",
+        "COTTON_FUT",
+        "WHEAT_SPOT",
+        "SOYBEAN_FUT",
+    ],
+    "opportunistic_digital": ["ETHEREUM"],
+    "opportunistic_fx": ["AUD", "CAD", "GBP_POUND", "EURO", "CNY", "SHEKEL", "USDJPY"],
 }
+
+
+def _actual_rebalance_dates(prices: pd.DataFrame, start: str, end: str | None, freq: str) -> pd.DatetimeIndex:
+    if freq == "ME":
+        effective_end = str(prices.index.max().date()) if end is None else end
+        return build_monthly_decision_dates(prices.loc[:, ALL_SAA], start, effective_end)
+
+    bounded = prices.loc[start:end].dropna(how="all")
+    if bounded.empty:
+        return pd.DatetimeIndex([])
+    return bounded.resample(freq).last().dropna(how="all").index
 
 
 def run(
@@ -54,8 +87,9 @@ def run(
     rebalance_freq: str = "ME",
     hmm_states: int = 3,
     vol_budget: float = TARGET_VOL,
+    enforce_vol_ceiling: bool = True,
 ):
-    if vol_budget > VOL_CEILING:
+    if enforce_vol_ceiling and vol_budget > VOL_CEILING:
         raise ValueError(
             f"vol_budget={vol_budget:.4f} exceeds VOL_CEILING={VOL_CEILING:.4f}. "
             "Use an internal target at or below the IPS volatility ceiling."
@@ -72,15 +106,11 @@ def run(
     avail = availability_flag(prices)
 
     # ----- pre-compute slow signals that are vectorized & causal -----
-    trend = trend_score(prices)
-    momo  = cross_sectional_rank(adm_score(prices), SLEEVE_BUCKETS)
+    trend = trend_score(prices.loc[:, ALL_TAA])
+    momo  = cross_sectional_rank(adm_score(prices.loc[:, ALL_TAA]), SLEEVE_BUCKETS)
 
     # ----- rebalance schedule -----
-    rebalance_dates = (
-        prices.loc[start:end]
-        .resample(rebalance_freq).last()
-        .dropna(how="all").index
-    )
+    rebalance_dates = _actual_rebalance_dates(prices, start, end, rebalance_freq)
 
     # ----- optional TimesFM -----
     forecaster = None
@@ -92,7 +122,7 @@ def run(
 
     # ----- main loop -----
     weight_log, regime_log, return_log = [], [], []
-    prev_w = pd.Series(BM2_WEIGHTS).reindex(ALL_SAA).fillna(0.0)
+    prev_w = pd.Series(BM2_WEIGHTS).reindex(ALL_TAA).fillna(0.0)
     last_hmm_refit = None
     hmm_model = None
 
@@ -150,8 +180,8 @@ def run(
         w = solve_taa(
             signal_score=mu,
             cov_matrix=cov,
-            prev_weights=prev_w,
-            available=avail.loc[:t].iloc[-1].reindex(ALL_SAA).fillna(0),
+            prev_weights=prev_w.reindex(ALL_TAA).fillna(0.0),
+            available=avail.loc[:t].iloc[-1].reindex(ALL_TAA).fillna(0),
             as_of_date=t,
             vol_budget=vol_budget,
         )
@@ -161,7 +191,7 @@ def run(
         if next_idx + 1 < len(rebalance_dates):
             t_next = rebalance_dates[next_idx + 1]
             period_rets = rets.loc[t:t_next].iloc[1:]  # skip decision day itself
-            port_rets = period_rets.reindex(columns=ALL_SAA).fillna(0).dot(w)
+            port_rets = period_rets.reindex(columns=ALL_TAA).fillna(0).dot(w)
             turnover = (w - prev_w).abs().sum()
             # charge 5bps once at rebalance on notional traded
             port_rets.iloc[0] -= COST_PER_TURNOVER * turnover
@@ -203,9 +233,20 @@ if __name__ == "__main__":
     ap.add_argument("--end",   default=None)
     ap.add_argument("--timesfm", action="store_true", help="use TimesFM vol/dir signals")
     ap.add_argument("--vol-budget", type=float, default=TARGET_VOL, help="Internal ex-ante vol target used by the TAA optimizer.")
+    ap.add_argument(
+        "--allow-above-ceiling",
+        action="store_true",
+        help="Allow research sweeps above the IPS ex-ante vol ceiling; compliance is still audited on realized results.",
+    )
     args = ap.parse_args()
 
-    w, r, rets = run(start=args.start, end=args.end, use_timesfm=args.timesfm, vol_budget=args.vol_budget)
+    w, r, rets = run(
+        start=args.start,
+        end=args.end,
+        use_timesfm=args.timesfm,
+        vol_budget=args.vol_budget,
+        enforce_vol_ceiling=not args.allow_above_ceiling,
+    )
     tearsheet(rets, "TAA overlay")
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     weights_path = OUTPUT_DIR / "taa_weights.csv"

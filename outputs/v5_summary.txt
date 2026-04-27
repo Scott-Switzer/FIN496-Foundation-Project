@@ -1,0 +1,75 @@
+=== V5 SWEEP RESULTS (44ea1ad) ===
+Config format: volScale_blShock
+
+--- 01_vol70_noBL.txt ---
+Annualized Return: 11.198813%
+Annualized Volatility: 9.512769%
+Max Drawdown: -34.303043%
+Sharpe: 0.966996
+Sortino: 1.396135
+Calmar: 0.326467
+
+--- 02_vol75_noBL.txt ---
+Annualized Return: 11.198816%
+Annualized Volatility: 9.512769%
+Max Drawdown: -34.303058%
+Sharpe: 0.966997
+Sortino: 1.396135
+Calmar: 0.326467
+
+--- 03_vol80_noBL.txt ---
+Annualized Return: 11.198816%
+Annualized Volatility: 9.512769%
+Max Drawdown: -34.303057%
+Sharpe: 0.966997
+Sortino: 1.396135
+Calmar: 0.326467
+
+--- 04_vol70_bl075.txt ---
+Annualized Return: 11.178509%
+Annualized Volatility: 9.499188%
+Max Drawdown: -33.843043%
+Sharpe: 0.966241
+Sortino: 1.394885
+Calmar: 0.330304
+
+--- 05_vol75_bl075.txt ---
+Annualized Return: 11.178512%
+Annualized Volatility: 9.499188%
+Max Drawdown: -33.843044%
+Sharpe: 0.966242
+Sortino: 1.394885
+Calmar: 0.330305
+
+--- 06_vol80_bl075.txt ---
+Annualized Return: 11.178511%
+Annualized Volatility: 9.499188%
+Max Drawdown: -33.843045%
+Sharpe: 0.966242
+Sortino: 1.394885
+Calmar: 0.330305
+
+--- 07_vol70_bl100.txt ---
+Annualized Return: 11.178930%
+Annualized Volatility: 9.495053%
+Max Drawdown: -33.670558%
+Sharpe: 0.966707
+Sortino: 1.395656
+Calmar: 0.332009
+
+--- 08_vol75_bl100.txt ---
+Annualized Return: 11.178933%
+Annualized Volatility: 9.495053%
+Max Drawdown: -33.670559%
+Sharpe: 0.966707
+Sortino: 1.395656
+Calmar: 0.332009
+
+--- 09_vol80_bl100.txt ---
+Annualized Return: 11.178932%
+Annualized Volatility: 9.495053%
+Max Drawdown: -33.670559%
+Sharpe: 0.966707
+Sortino: 1.395656
+Calmar: 0.332009
+

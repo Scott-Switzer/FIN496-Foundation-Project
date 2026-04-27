@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from taa_project.config import ALL_SAA, BM2_WEIGHTS, COST_PER_TURNOVER
+from taa_project.config import ALL_SAA, ALL_TAA, BM2_WEIGHTS, COST_PER_TURNOVER
 from taa_project.optimizer.cvxpy_opt import (
     BREACH_LOG_PATH,
     EnsembleConfig,
@@ -40,7 +40,7 @@ def test_ensemble_score_respects_custom_config() -> None:
 
     expected = 0.5 * 0.10 + 0.25 * 0.5 * 0.06 + 0.25 * -0.5 * 0.06
     assert np.isclose(score["SPXT"], expected), f"Got {score['SPXT']}, expected {expected}"
-    assert score.index.tolist() == ALL_SAA
+    assert score.index.tolist() == ALL_TAA
 
 
 def test_saa_annual_result_returns_full_investment_weights() -> None:

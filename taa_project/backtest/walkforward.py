@@ -118,13 +118,14 @@ OPPORTUNISTIC_ALPHA_ASSETS = [
 
 EMERGENCY_TAA_TARGET_WEIGHTS = {
     # Defensive capital-preservation portfolio used when the SLSQP projection
-    # fails to converge.  All opportunistic assets are excluded here because
-    # their IPS caps (OPPO_CAP=8%, OPPO_PER_ASSET=5%) are too tight to satisfy
-    # reliably in a degenerate-asset-availability scenario; the freed weight
-    # flows to LBUSTRUU and BROAD_TIPS instead.
-    "SPXT": 0.20,
-    "LBUSTRUU": 0.405,
-    "BROAD_TIPS": 0.245,
+    # fails to converge.  All weights respect the per-sleeve TAA band ceilings
+    # (SPXT <= 45%, LBUSTRUU <= 35%, BROAD_TIPS <= 25%, CHF_FRANC <= 15%).
+    # All opportunistic assets are excluded here because their IPS caps
+    # (OPPO_CAP=8%, OPPO_PER_ASSET=5%) are too tight to satisfy reliably in a
+    # degenerate-asset-availability scenario.
+    "SPXT": 0.25,
+    "LBUSTRUU": 0.35,
+    "BROAD_TIPS": 0.25,
     "CHF_FRANC": 0.15,
 }
 EMERGENCY_TAA_FILL_ORDER = (

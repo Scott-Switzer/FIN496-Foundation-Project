@@ -110,7 +110,7 @@ def test_run_pipeline_orchestrates_with_stubbed_dependencies(monkeypatch, tmp_pa
 
     assert Path(artifacts["notebook_path"]).exists()
     assert Path(artifacts["report_markdown_path"]).exists()
-    assert Path(artifacts["deck_pdf_path"]).exists()
+    assert Path(artifacts["deck_path"]).exists()
     assert (tmp_path / "TRIAL_LEDGER.csv").exists()
     assert captured["walkforward_vol_budget"] == 0.08
     assert captured["attribution_vol_budget"] == 0.08

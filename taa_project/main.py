@@ -57,7 +57,7 @@ from taa_project.data_audit import run_data_audit
 from taa_project.notebooks.build_diagnostics import build_diagnostics_notebook
 from taa_project.optimizer.cvxpy_opt import EnsembleConfig
 from taa_project.optimizer.nested_risk import NestedRiskConfig
-from taa_project.report.build_deck import build_deck
+from taa_project.report.build_pptx import build_pptx as build_deck
 from taa_project.report.build_report import build_report
 from taa_project.saa.build_saa import build_saa_portfolio
 RUN_TRIAL_LEDGER_COLUMNS = [
@@ -530,8 +530,8 @@ def run_pipeline(
         report_dir=report_dir,
     )
 
-    log_step("Task 11: presentation deck PDF")
-    deck_pdf_path = build_deck(
+    log_step("Task 11: presentation deck PPTX")
+    deck_path = build_deck(
         output_dir=output_dir,
         figure_dir=figure_dir,
         report_dir=report_dir,
@@ -546,7 +546,7 @@ def run_pipeline(
         "notebook_path": notebook_path,
         "report_markdown_path": report_markdown_path,
         "report_pdf_path": report_pdf_path,
-        "deck_pdf_path": deck_pdf_path,
+        "deck_path": deck_path,
     }
 
 

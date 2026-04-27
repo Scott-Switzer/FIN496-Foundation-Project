@@ -60,13 +60,9 @@ from taa_project.optimizer.nested_risk import NestedRiskConfig
 from taa_project.report.build_deck import build_deck
 from taa_project.report.build_report import build_report
 from taa_project.saa.build_saa import build_saa_portfolio
-from taa_project.signals.vol_timesfm import timesfm_is_available
-
-
 RUN_TRIAL_LEDGER_COLUMNS = [
     "trial_id",
     "timestamp_utc",
-    "use_timesfm",
     "vol_budget",
     "folds",
     "start",
@@ -153,7 +149,6 @@ def _append_pipeline_trial_row(
     start: str,
     end: str,
     folds: int,
-    use_timesfm: bool,
     vol_budget: float,
     output_dir: Path,
     metrics: pd.DataFrame,
@@ -162,7 +157,6 @@ def _append_pipeline_trial_row(
 
     Inputs:
     - `start`, `end`, `folds`: run configuration.
-    - `use_timesfm`: whether TimesFM was enabled.
     - `vol_budget`: internal optimizer volatility target for this run.
     - `output_dir`: run-specific output directory used to derive the `run_id`.
     - `metrics`: Task 8 portfolio-metrics dataframe.
@@ -183,14 +177,13 @@ def _append_pipeline_trial_row(
     run_id = output_dir.parent.name if output_dir.parent.name else output_dir.name
     trial_id = (
         f"{run_id}_{timestamp_utc.replace(':', '').replace('-', '').replace('+00:00', 'Z')}"
-        f"_{'timesfm' if use_timesfm else 'no_timesfm'}_vb{int(round(vol_budget * 1000)):03d}"
+        f"_vb{int(round(vol_budget * 1000)):03d}"
     )
     new_row = pd.DataFrame(
         [
             {
                 "trial_id": trial_id,
                 "timestamp_utc": timestamp_utc,
-                "use_timesfm": int(use_timesfm),
                 "vol_budget": vol_budget,
                 "folds": folds,
                 "start": start,
@@ -332,7 +325,6 @@ def run_pipeline(
     start: str = "2003-01-01",
     end: str = "2025-12-31",
     folds: int = 5,
-    use_timesfm: bool = False,
     vol_budget: float = TARGET_VOL,
     optimizer_mode: str = "vol",
     cvar_alpha: float = 0.95,
@@ -358,7 +350,6 @@ def run_pipeline(
 
     Inputs:
     - `start`, `end`, `folds`: walk-forward settings.
-    - `use_timesfm`: whether to enable the optional TimesFM signal layer.
     - `vol_budget`: internal ex-ante vol target passed into the TAA optimizer.
     - `optimizer_mode`: monthly optimizer constraint family.
     - `cvar_alpha`, `cvar_budget`, `cvar_lookback`: CVaR controls used when
@@ -394,11 +385,6 @@ def run_pipeline(
       enforce the point-in-time data rules.
     """
 
-    if use_timesfm and not timesfm_is_available():
-        raise RuntimeError(
-            "TimesFM was requested with --timesfm, but the dependency is not installed. "
-            "Rerun with --no-timesfm or install the official google-research/timesfm stack."
-        )
     vol_budget = _validate_vol_budget(vol_budget)
     if regime_vol_budgets is not None:
         for regime_label, regime_budget in regime_vol_budgets.items():
@@ -432,7 +418,7 @@ def run_pipeline(
         bl_stress_shock=bl_stress_shock,
     )
 
-    seed_everything(DEFAULT_RANDOM_SEED, seed_torch=use_timesfm)
+    seed_everything(DEFAULT_RANDOM_SEED, seed_torch=False)
     MPLCONFIG_DIR.mkdir(parents=True, exist_ok=True)
     output_dir.mkdir(parents=True, exist_ok=True)
     figure_dir.mkdir(parents=True, exist_ok=True)
@@ -457,7 +443,6 @@ def run_pipeline(
         start=start,
         end=end,
         folds=folds,
-        use_timesfm=use_timesfm,
         vol_budget=vol_budget,
         ensemble_config=ensemble_config,
         output_dir=output_dir,
@@ -468,7 +453,6 @@ def run_pipeline(
         start=start,
         end=end,
         folds=folds,
-        use_timesfm=use_timesfm,
         vol_budget=vol_budget,
         ensemble_config=ensemble_config,
         output_dir=output_dir,
@@ -479,7 +463,6 @@ def run_pipeline(
         start=start,
         end=end,
         folds=folds,
-        use_timesfm=use_timesfm,
         vol_budget=vol_budget,
         saa_method=saa_method,
         ensemble_config=ensemble_config,
@@ -490,7 +473,6 @@ def run_pipeline(
         start=start,
         end=end,
         folds=folds,
-        use_timesfm=use_timesfm,
         vol_budget=vol_budget,
         output_dir=output_dir,
         metrics=reporting_artifacts["metrics"],
@@ -598,10 +580,6 @@ def main() -> None:
     parser.add_argument("--start", default="2003-01-01", help="First OOS date for the walk-forward backtest.")
     parser.add_argument("--end", default="2025-12-31", help="Last date for the generated outputs.")
     parser.add_argument("--folds", type=int, default=5, help="Number of contiguous OOS folds.")
-    timesfm_group = parser.add_mutually_exclusive_group()
-    timesfm_group.add_argument("--timesfm", dest="use_timesfm", action="store_true", help="Enable the optional TimesFM layer.")
-    timesfm_group.add_argument("--no-timesfm", dest="use_timesfm", action="store_false", help="Disable the TimesFM layer.")
-    parser.set_defaults(use_timesfm=False)
     parser.add_argument(
         "--vol-budget",
         dest="vol_budget",
@@ -694,7 +672,6 @@ def main() -> None:
         start=args.start,
         end=args.end,
         folds=args.folds,
-        use_timesfm=args.use_timesfm,
         vol_budget=args.vol_budget,
         optimizer_mode=args.optimizer_mode,
         cvar_alpha=args.cvar_alpha,

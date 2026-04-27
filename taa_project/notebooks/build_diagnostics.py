@@ -128,7 +128,8 @@ def build_diagnostics_notebook(
         ),
         nbf.v4.new_code_cell(
             "dsr_summary = pd.read_csv(OUTPUT_DIR / 'dsr_summary.csv')\n"
-            "if int(dsr_summary.loc[0, 'timesfm_enabled']) == 0:\n"
+            "timesfm_enabled = int(dsr_summary.loc[0, 'timesfm_enabled']) if 'timesfm_enabled' in dsr_summary.columns else 1\n"
+            "if timesfm_enabled == 0:\n"
             "    print('TimesFM diagnostics skipped: baseline run used --no-timesfm.')\n"
             "else:\n"
             "    print('TimesFM was enabled; inspect saved forecast cache if present.')\n"

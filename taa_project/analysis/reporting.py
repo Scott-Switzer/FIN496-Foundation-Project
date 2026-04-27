@@ -464,7 +464,6 @@ def _load_attribution_outputs(
     start: str,
     end: str,
     folds: int,
-    use_timesfm: bool,
     vol_budget: float,
     ensemble_config: EnsembleConfig | None,
     output_dir: Path,
@@ -472,7 +471,7 @@ def _load_attribution_outputs(
     """Load attribution outputs, building them first when missing.
 
     Inputs:
-    - `start`, `end`, `folds`, `use_timesfm`: attribution rerun settings.
+    - `start`, `end`, `folds`: attribution rerun settings.
     - `vol_budget`: internal ex-ante annualized volatility target reused by
       attribution reruns when outputs are missing.
     - `ensemble_config`: optional baseline ensemble configuration reused by
@@ -499,7 +498,6 @@ def _load_attribution_outputs(
             start=start,
             end=end,
             folds=folds,
-            use_timesfm=use_timesfm,
             vol_budget=vol_budget,
             ensemble_config=ensemble_config,
             output_dir=output_dir,
@@ -976,7 +974,6 @@ def _ips_compliance_rows(
 
 def _build_trial_ledger(
     output_dir: Path,
-    use_timesfm: bool,
     folds: int,
     per_signal: pd.DataFrame,
     saa_method_comparison: pd.DataFrame,
@@ -986,7 +983,6 @@ def _build_trial_ledger(
 
     Inputs:
     - `output_dir`: output directory containing baseline and ablation runs.
-    - `use_timesfm`: whether the baseline run used TimesFM.
     - `folds`: number of walk-forward folds.
     - `per_signal`: Task 7 per-signal attribution dataframe.
     - `saa_method_comparison`: SAA method comparison dataframe.
@@ -1013,14 +1009,6 @@ def _build_trial_ledger(
         ("no_trend", output_dir / "ablations" / "no_trend" / "oos_returns.csv", "Leave-one-out trend ablation."),
         ("no_momo", output_dir / "ablations" / "no_momo" / "oos_returns.csv", "Leave-one-out ADM ablation."),
     ]
-    if use_timesfm:
-        taa_variants.append(
-            (
-                "no_timesfm",
-                output_dir / "ablations" / "no_timesfm" / "oos_returns.csv",
-                "Leave-one-out TimesFM ablation.",
-            )
-        )
 
     for variant_id, path, notes in taa_variants:
         returns = pd.read_csv(path, parse_dates=["date"]).set_index("date")["portfolio_return"]
@@ -1038,16 +1026,15 @@ def _build_trial_ledger(
                         "regime_scale": 0.10,
                         "trend_scale": 0.06,
                         "momo_scale": 0.06,
-                        "timesfm_scale": "mu_ann",
                     },
                     sort_keys=True,
                 ),
                 "ensemble_weights": json.dumps(
                     {
-                        "regime": 0.40 if variant_id != "no_regime" else 0.0,
-                        "trend": 0.20 if variant_id != "no_trend" else 0.0,
-                        "momo": 0.20 if variant_id != "no_momo" else 0.0,
-                        "timesfm": 0.20 if variant_id != "no_timesfm" else 0.0,
+                        "regime": 0.20 if variant_id != "no_regime" else 0.0,
+                        "trend": 0.30 if variant_id != "no_trend" else 0.0,
+                        "momo": 0.30 if variant_id != "no_momo" else 0.0,
+                        "macro": 0.20,
                     },
                     sort_keys=True,
                 ),
@@ -1056,7 +1043,7 @@ def _build_trial_ledger(
                 "IS_sharpe": np.nan,
                 "OOS_sharpe": sharpe_ratio(returns),
                 "DSR": np.nan,
-                "notes": notes if use_timesfm or variant_id != "baseline" else f"{notes} Baseline run used --no-timesfm.",
+                "notes": notes,
             }
         )
 
@@ -1095,7 +1082,6 @@ def _build_trial_ledger(
                 "baseline_variant_id": TAA_BASELINE_VARIANT_ID,
                 "baseline_sharpe": float(trial_ledger.loc[trial_ledger["variant_id"] == TAA_BASELINE_VARIANT_ID, "OOS_sharpe"].iloc[0]),
                 "baseline_dsr": float(trial_ledger.loc[trial_ledger["variant_id"] == TAA_BASELINE_VARIANT_ID, "DSR"].iloc[0]),
-                "timesfm_enabled": int(use_timesfm),
             }
         ]
     )
@@ -1519,7 +1505,6 @@ def build_reporting(
         start=start,
         end=end,
         folds=folds,
-        use_timesfm=use_timesfm,
         vol_budget=vol_budget,
         ensemble_config=ensemble_config,
         output_dir=output_dir,
@@ -1535,7 +1520,6 @@ def build_reporting(
         existing_trial_ledger = pd.DataFrame()
     trial_ledger, dsr_summary = _build_trial_ledger(
         output_dir=output_dir,
-        use_timesfm=use_timesfm,
         folds=folds,
         per_signal=attribution["per_signal"],
         saa_method_comparison=saa_method_comparison,

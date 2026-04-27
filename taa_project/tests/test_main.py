@@ -23,7 +23,7 @@ def test_run_pipeline_orchestrates_with_stubbed_dependencies(monkeypatch, tmp_pa
     def fake_build_benchmarks(start_date, end_date, output_dir):
         return None
 
-    def fake_run_walkforward(start, end, folds, use_timesfm, vol_budget, output_dir, ensemble_config=None):
+    def fake_run_walkforward(start, end, folds, vol_budget, output_dir, ensemble_config=None):
         captured["walkforward_vol_budget"] = vol_budget
         captured["walkforward_regime_vol_budgets"] = None if ensemble_config is None else ensemble_config.vol_budget_by_regime
         captured["walkforward_dd_guardrail"] = False if ensemble_config is None else ensemble_config.use_dd_guardrail
@@ -36,14 +36,14 @@ def test_run_pipeline_orchestrates_with_stubbed_dependencies(monkeypatch, tmp_pa
             "oos_regimes": pd.DataFrame(),
         }
 
-    def fake_build_attribution(start, end, folds, use_timesfm, vol_budget, output_dir, ensemble_config=None):
+    def fake_build_attribution(start, end, folds, vol_budget, output_dir, ensemble_config=None):
         captured["attribution_vol_budget"] = vol_budget
         captured["attribution_regime_vol_budgets"] = None if ensemble_config is None else ensemble_config.vol_budget_by_regime
         captured["attribution_dd_guardrail"] = False if ensemble_config is None else ensemble_config.use_dd_guardrail
         captured["attribution_daily_risk_governor"] = False if ensemble_config is None else ensemble_config.use_daily_risk_governor
         return {"per_signal": pd.DataFrame()}
 
-    def fake_build_reporting(start, end, folds, use_timesfm, vol_budget, output_dir, figure_dir, saa_method="min_variance", ensemble_config=None):
+    def fake_build_reporting(start, end, folds, vol_budget, output_dir, figure_dir, saa_method="min_variance", ensemble_config=None):
         captured["reporting_vol_budget"] = vol_budget
         captured["reporting_regime_vol_budgets"] = None if ensemble_config is None else ensemble_config.vol_budget_by_regime
         captured["reporting_dd_guardrail"] = False if ensemble_config is None else ensemble_config.use_dd_guardrail
@@ -98,7 +98,6 @@ def test_run_pipeline_orchestrates_with_stubbed_dependencies(monkeypatch, tmp_pa
         start="2003-01-01",
         end="2003-06-30",
         folds=2,
-        use_timesfm=False,
         vol_budget=0.08,
         regime_vol_budgets={"risk_on": 0.10, "neutral": 0.08, "stress": 0.05},
         use_dd_guardrail=True,
@@ -129,19 +128,6 @@ def test_run_pipeline_orchestrates_with_stubbed_dependencies(monkeypatch, tmp_pa
     assert captured["reporting_saa_method"] == "min_variance"
 
 
-def test_run_pipeline_raises_when_timesfm_requested_but_unavailable(monkeypatch, tmp_path) -> None:
-    monkeypatch.setattr(pipeline_main, "timesfm_is_available", lambda: False)
-
-    with pytest.raises(RuntimeError, match="TimesFM was requested"):
-        pipeline_main.run_pipeline(
-            use_timesfm=True,
-            output_dir=tmp_path / "outputs",
-            figure_dir=tmp_path / "figures",
-            report_dir=tmp_path / "reports",
-            notebook_dir=tmp_path / "notebooks",
-        )
-
-
 def test_run_pipeline_allows_standalone_saa_compliance_rows(monkeypatch, tmp_path) -> None:
     def fake_run_data_audit(output_dir):
         return {}
@@ -152,13 +138,13 @@ def test_run_pipeline_allows_standalone_saa_compliance_rows(monkeypatch, tmp_pat
     def fake_build_benchmarks(start_date, end_date, output_dir):
         return None
 
-    def fake_run_walkforward(start, end, folds, use_timesfm, vol_budget, output_dir, ensemble_config=None):
+    def fake_run_walkforward(start, end, folds, vol_budget, output_dir, ensemble_config=None):
         return {}
 
-    def fake_build_attribution(start, end, folds, use_timesfm, vol_budget, output_dir, ensemble_config=None):
+    def fake_build_attribution(start, end, folds, vol_budget, output_dir, ensemble_config=None):
         return {}
 
-    def fake_build_reporting(start, end, folds, use_timesfm, vol_budget, output_dir, figure_dir, saa_method="min_variance", ensemble_config=None):
+    def fake_build_reporting(start, end, folds, vol_budget, output_dir, figure_dir, saa_method="min_variance", ensemble_config=None):
         return {
             "ips_compliance": pd.DataFrame(
                 [{"portfolio": "SAA", "date": "2008-10-01", "rule": "max_drawdown", "value": -0.30, "bound": -0.25}]
@@ -208,10 +194,10 @@ def test_run_pipeline_raises_on_strategy_compliance_rows(monkeypatch, tmp_path) 
     def noop(*args, **kwargs):
         return {}
 
-    def fake_build_reporting(start, end, folds, use_timesfm, vol_budget, output_dir, figure_dir, saa_method="min_variance", ensemble_config=None):
+    def fake_build_reporting(start, end, folds, vol_budget, output_dir, figure_dir, saa_method="min_variance", ensemble_config=None):
         return {
             "ips_compliance": pd.DataFrame(
-                [{"portfolio": "SAA+TAA", "date": "2008-10-01", "rule": "rolling_vol_21d", "value": 0.16, "bound": 0.15}]
+                [{"portfolio": "SAA+TAA", "date": "2008-10-01", "rule": "opportunistic_cap", "value": 0.16, "bound": 0.08}]
             ),
             "metrics": pd.DataFrame([{"portfolio": "SAA+TAA"}]),
         }
@@ -236,7 +222,6 @@ def test_run_pipeline_raises_on_strategy_compliance_rows(monkeypatch, tmp_path) 
 def test_run_pipeline_raises_on_invalid_vol_budget(tmp_path) -> None:
     with pytest.raises(ValueError, match="vol_budget"):
         pipeline_main.run_pipeline(
-            use_timesfm=False,
             vol_budget=0.20,
             output_dir=tmp_path / "outputs",
             figure_dir=tmp_path / "figures",

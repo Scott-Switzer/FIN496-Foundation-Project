@@ -297,7 +297,7 @@ def _build_markdown(inputs: dict[str, object]) -> str:
     saa = metrics.loc["SAA"]
     taa = metrics.loc["SAA+TAA"]
     bm2 = metrics.loc["BM2"]
-    mode_text = "--timesfm" if int(dsr_summary["timesfm_enabled"]) == 1 else "--no-timesfm"
+    mode_text = "--timesfm" if int(dsr_summary.get("timesfm_enabled", 1)) == 1 else "--no-timesfm"
     disclosed_trials = int(dsr_summary.get("n_disclosed_trials", dsr_summary.get("n_taa_trials", 0)))
     comparison = inputs["config_comparison"]
     selection = inputs["submission_selection"]

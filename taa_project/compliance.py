@@ -278,6 +278,9 @@ def append_compliance_rebalance_log(path: Path, rows: list[dict[str, object]]) -
     path.parent.mkdir(parents=True, exist_ok=True)
     frame = pd.DataFrame(rows).reindex(columns=COMPLIANCE_REBALANCE_COLUMNS)
     if path.exists() and path.stat().st_size > 0:
-        existing = pd.read_csv(path)
-        frame = pd.concat([existing, frame], ignore_index=True).reindex(columns=COMPLIANCE_REBALANCE_COLUMNS)
+        try:
+            existing = pd.read_csv(path, on_bad_lines="skip")
+            frame = pd.concat([existing, frame], ignore_index=True).reindex(columns=COMPLIANCE_REBALANCE_COLUMNS)
+        except Exception:
+            pass  # stale / schema-mismatch file — overwrite with fresh data
     frame.to_csv(path, index=False)

@@ -58,9 +58,6 @@ def test_run_walkforward_smoke(monkeypatch, tmp_path) -> None:
             regime_label="risk_on",
             trend=zero,
             momo=zero,
-            timesfm_mu=zero,
-            timesfm_sigma=pd.Series(0.2, index=ALL_SAA, dtype=float),
-            timesfm_dir=zero,
         )
         return bundle, kwargs.get("hmm_model_cache")
 
@@ -71,7 +68,6 @@ def test_run_walkforward_smoke(monkeypatch, tmp_path) -> None:
         end="2003-06-30",
         folds=2,
         embargo_business_days=21,
-        use_timesfm=False,
         output_dir=tmp_path,
     )
 
@@ -89,22 +85,7 @@ def test_run_walkforward_rejects_invalid_vol_budget(tmp_path) -> None:
             end="2003-06-30",
             folds=2,
             embargo_business_days=21,
-            use_timesfm=False,
             vol_budget=0.16,
-            output_dir=tmp_path,
-        )
-
-
-def test_run_walkforward_raises_when_timesfm_requested_but_unavailable(monkeypatch, tmp_path) -> None:
-    monkeypatch.setattr(walkforward_module, "timesfm_is_available", lambda: False)
-
-    with pytest.raises(RuntimeError, match="TimesFM was requested"):
-        run_walkforward(
-            start="2003-01-01",
-            end="2003-06-30",
-            folds=2,
-            embargo_business_days=21,
-            use_timesfm=True,
             output_dir=tmp_path,
         )
 
@@ -120,9 +101,6 @@ def test_run_walkforward_uses_regime_specific_vol_budget(monkeypatch, tmp_path) 
             regime_label="stress",
             trend=zero,
             momo=zero,
-            timesfm_mu=zero,
-            timesfm_sigma=pd.Series(0.2, index=ALL_SAA, dtype=float),
-            timesfm_dir=zero,
         )
         return bundle, kwargs.get("hmm_model_cache")
 
@@ -149,7 +127,6 @@ def test_run_walkforward_uses_regime_specific_vol_budget(monkeypatch, tmp_path) 
         end="2003-06-30",
         folds=2,
         embargo_business_days=21,
-        use_timesfm=False,
         vol_budget=0.10,
         ensemble_config=EnsembleConfig(vol_budget_by_regime={"risk_on": 0.10, "neutral": 0.08, "stress": 0.05}),
         output_dir=tmp_path,

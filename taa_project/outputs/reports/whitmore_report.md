@@ -1,13 +1,13 @@
 # Whitmore Capital Partners SAA/TAA Report
 
 ## Executive Summary
-- The final implementation uses constrained risk parity for SAA and a monthly cvxpy TAA overlay driven by HMM regime, Faber trend, Antonacci-style ADM, and an optional TimesFM layer. This report reflects run mode `--timesfm`. [Sources: `taa_project/saa/build_saa.py`, `taa_project/backtest/walkforward.py`, `taa_project/analysis/reporting.py`]
-- Net annualized return is 5.70% for `SAA+TAA` versus 8.83% for `SAA` and 7.86% for `BM2`. [Source: `taa_project/outputs/portfolio_metrics.csv`]
-- Net Sharpe improves by 0.11 versus `BM2`, while the Deflated Sharpe Ratio is 0.842 across 257 disclosed trials in `TRIAL_LEDGER.csv`. [Sources: `taa_project/outputs/portfolio_metrics.csv`, `taa_project/outputs/dsr_summary.csv`, `TRIAL_LEDGER.csv`]
-- Daily IPS audit produced 0 violations across the strategy target schedules. [Source: `taa_project/outputs/ips_compliance.csv`]
+- The final implementation uses the configured SAA allocator for this run together with a monthly cvxpy TAA overlay driven by HMM regime, Faber trend, Antonacci-style ADM, and an optional TimesFM layer. This report reflects run mode `--timesfm`. [Sources: `taa_project/saa/build_saa.py`, `taa_project/backtest/walkforward.py`, `taa_project/analysis/reporting.py`]
+- Net annualized return is 8.41% for `SAA+TAA` versus 6.55% for `SAA` and 7.86% for `BM2`. [Source: `taa_project/outputs/portfolio_metrics.csv`]
+- Net Sharpe improves by 0.28 versus `BM2`, while the Deflated Sharpe Ratio is 0.941 across 691 disclosed trials in `TRIAL_LEDGER.csv`. [Sources: `taa_project/outputs/portfolio_metrics.csv`, `taa_project/outputs/dsr_summary.csv`, `TRIAL_LEDGER.csv`]
+- Daily IPS audit produced 1057 hard-constraint exception rows requiring CIO escalation and written documentation before live use. [Source: `taa_project/outputs/ips_compliance.csv`]
 
 ## SAA Construction and IPS Compliance
-- Risk parity was selected over inverse volatility, minimum variance, maximum diversification, and mean-variance because it cleared the 8% return objective while staying below the 15% volatility ceiling without relying on fragile expected-return estimates; minimum variance was safer on volatility but undershot the return mandate. [Sources: `taa_project/saa/build_saa.py`, `taa_project/outputs/saa_method_comparison.csv`]
+- The strategic allocator is chosen from the SAA method comparison table, balancing IPS compliance and risk/return trade-offs across inverse volatility, minimum variance, risk parity, maximum diversification, mean-variance, and the optional HRP variant. [Sources: `taa_project/saa/build_saa.py`, `taa_project/outputs/saa_method_comparison.csv`]
 - The amended Non-Traditional cap of 20% from Resolution 2026-02 is applied as binding policy throughout the pipeline. [Sources: `IPS.md`, `Guidelines.md`, `taa_project/config.py`]
 
 ## TAA Signal Design
@@ -26,8 +26,8 @@
 - All macro inputs are lagged by one business day before signal use, and no asset-price gaps are forward-filled or backward-filled. [Sources: `taa_project/data_audit.py`, `taa_project/outputs/data_audit_report.md`]
 
 ## Performance Results
-- `SAA+TAA` delivers 5.70% annualized return, 5.14% annualized volatility, and -16.59% max drawdown. [Source: `taa_project/outputs/portfolio_metrics.csv`]
-- Relative to `SAA`, the TAA overlay changes annualized return by -3.13% and cost drag by 0.02% per year. [Source: `taa_project/outputs/portfolio_metrics.csv`]
+- `SAA+TAA` delivers 8.41% annualized return, 7.22% annualized volatility, and -21.92% max drawdown. [Source: `taa_project/outputs/portfolio_metrics.csv`]
+- Relative to `SAA`, the TAA overlay changes annualized return by 1.86% and cost drag by 0.24% per year. [Source: `taa_project/outputs/portfolio_metrics.csv`]
 
 ## Contribution Analysis
 - Active-return decomposition is reported separately for `SAA vs BM2`, `TAA vs SAA`, `TAA vs BM1`, and `TAA vs BM2`. [Sources: `taa_project/outputs/attribution_saa_vs_bm2.csv`, `taa_project/outputs/attribution_taa_vs_saa.csv`]
@@ -36,7 +36,7 @@
 ## Risk Limit Compliance
 - Over the 2000–2025 backtest window, no portfolio respecting the IPS minimum-allocation constraints, the no-short rule, and the -25% max-drawdown limit was found under our signal stack. `BM2` itself registered -35.23% drawdown, and `BM1` -33.91%. [Sources: `taa_project/outputs/config_comparison.csv`, `taa_project/outputs/submission_selection.json`]
 - The submitted configuration (`timesfm_regime_vb`) achieved -16.59% maximum drawdown, the lowest across 13 tested configurations, representing 1864 bps improvement over `BM2` and 4520 bps improvement over the IPS-target `SAA`. [Source: `taa_project/outputs/submission_selection.json`]
-- The residual drawdown breach versus the IPS tolerance is 0 bps. We interpret the -25% figure as an aspirational guardrail under the post-2008 regime, not a constraint the long-only policy portfolio can always satisfy, and recommend explicit client re-affirmation of drawdown tolerance during the annual IPS review.
+- The residual drawdown breach versus the IPS tolerance is 0 bps. Because the -25% drawdown tolerance is a hard IPS constraint, any selected configuration with a residual breach requires formal exception approval and incident documentation before live deployment.
 - Decision tree outcome: `rule_2_mdd_only` selected `timesfm_regime_vb` because it delivered the best available drawdown profile while still considering DSR and return ordering. [Source: `taa_project/outputs/submission_selection.json`]
 
 ## Portfolio Construction Lever Analysis
@@ -51,7 +51,7 @@
 - The optimizer uses a shrinkage-style covariance stabilization and a soft volatility ceiling, so results depend on those engineering choices even under walk-forward discipline. [Source: `taa_project/backtest/walkforward.py`]
 
 ## Recommendation
-- Use `timesfm_regime_vb` as the submission configuration and treat the TAA overlay as additive only while its OOS Sharpe and DSR remain superior after costs under the disclosed trial count. [Sources: `taa_project/outputs/portfolio_metrics.csv`, `taa_project/outputs/submission_selection.json`, `TRIAL_LEDGER.csv`]
+- Do not treat `timesfm_regime_vb` as live-deployable without formal IPS exception approval; use it only as the best tested research candidate while hard-constraint exceptions remain open. [Sources: `taa_project/outputs/portfolio_metrics.csv`, `taa_project/outputs/submission_selection.json`, `TRIAL_LEDGER.csv`]
 - Monitor the regime layer and turnover drag closely in stressed periods; the contribution tables show whether the overlay is being paid for by genuine alpha or by benchmark timing luck. [Source: `taa_project/outputs/attribution_per_signal.csv`]
 
 ## Appendix

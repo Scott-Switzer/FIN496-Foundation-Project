@@ -9,7 +9,7 @@ test:
 	$(PYTHON) -m pytest -q
 
 pipeline:
-	$(PYTHON) taa_project/main.py --start 2003-01-01 --end 2025-12-31 --folds 5 --no-timesfm
+	PYTHONPATH=. $(PYTHON) taa_project/main.py --start 2003-01-01 --end 2025-12-31 --folds 5
 
 zip: pipeline
 	cd $(PROJECT_ROOT) && zip -r $(ZIP_PATH) \

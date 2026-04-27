@@ -109,24 +109,24 @@ class EnsembleConfig:
 
     # Signal-ensemble weights must sum to 1.0 for a stable expected-return
     # scale.  Default allocation:
-    #   regime(0.20) + trend(0.25) + momo(0.25) + timesfm(0.15) + macro(0.15)
+    #   regime(0.20) + trend(0.30) + momo(0.30) + macro(0.20)
     #
     # History of changes (see DECISIONS.md):
     #   PR #6: regime 0.40→0.30 (freed weight to macro), macro 0.10→0.20 — reverted
-    #   2026-04 fix: regime restored to 0.40, macro reduced to 0.05, timesfm 0.10→0.15
+    #   2026-04 fix: regime restored to 0.40, macro reduced to 0.05
     #   2026-04 (this change): regime 0.40→0.20, trend/momo each 0.20→0.30.
-    #   2026-04 macro fix: macro_factor_weight 0.05→0.15, trend/momo each 0.30→0.25.
+    #   2026-04 macro fix: macro_factor_weight raised to 0.20.
     #     2022 diagnostics show bonds and equities fell simultaneously (inflationary
     #     crash). The macro_factor signal (real-yield tilt, credit premium) is the
     #     only signal that can distinguish deflationary stress (→ bonds) from
-    #     inflationary stress (→ TIPS, gold, commodities). Raising its weight from
-    #     5% to 15% gives it enough influence to meaningfully shift allocations
-    #     during rate-shock environments. Trend and momentum each give up 5%.
+    #     inflationary stress (→ TIPS, gold, commodities).
+    #   2026-04 TimesFM removal: timesfm was always disabled (--no-timesfm).
+    #     Its 0.15 weight was redistributed: regime→0.20, trend→0.30, momo→0.30,
+    #     macro→0.20. Weights still sum to 1.0.
     regime_weight: float = 0.20
-    trend_weight: float = 0.25
-    momo_weight: float = 0.25
-    timesfm_weight: float = 0.15
-    macro_factor_weight: float = 0.15
+    trend_weight: float = 0.30
+    momo_weight: float = 0.30
+    macro_factor_weight: float = 0.20
     regime_scale: float = 0.10
     trend_scale: float = 0.06
     momo_scale: float = 0.06
@@ -406,6 +406,59 @@ def _fallback_weights(
             return _full_weights(projected, assets)
         except Exception:
             return _empty_weights()
+
+
+def _solve_vol_taa_scipy(
+    universe: list[str],
+    mu: np.ndarray,
+    sigma: np.ndarray,
+    prev: np.ndarray,
+    lower_bounds: pd.Series,
+    upper_bounds: pd.Series,
+    vol_budget: float,
+    risk_aversion: float,
+    turnover_cost: float,
+) -> np.ndarray:
+    """Solve the monthly volatility-constrained TAA problem with bounded SLSQP."""
+
+    bounds = Bounds(lower_bounds.to_numpy(dtype=float), upper_bounds.to_numpy(dtype=float))
+    sum_to_one, inequalities = build_linear_constraints(universe)
+
+    oppo_idx = _idx(universe, OPPORTUNISTIC)
+    if oppo_idx:
+        oppo_row = np.zeros((1, len(universe)))
+        oppo_row[0, oppo_idx] = 1.0
+        inequalities = [
+            *inequalities,
+            LinearConstraint(oppo_row, lb=np.array([-np.inf]), ub=np.array([OPPO_CAP])),
+        ]
+
+    x0 = np.clip(prev, lower_bounds.to_numpy(dtype=float), upper_bounds.to_numpy(dtype=float))
+    if float(x0.sum()) <= 0.0:
+        x0 = _current_target_for_mode("taa_monthly").reindex(universe).fillna(0.0).to_numpy(dtype=float)
+        x0 = np.clip(x0, lower_bounds.to_numpy(dtype=float), upper_bounds.to_numpy(dtype=float))
+    if float(x0.sum()) > 0.0:
+        x0 = x0 / float(x0.sum())
+
+    def objective(weights: np.ndarray) -> float:
+        variance = float(weights @ sigma @ weights)
+        turnover = float(np.abs(weights - prev).sum())
+        return float(-mu @ weights + risk_aversion * variance + turnover_cost * turnover)
+
+    constraints: list[object] = [sum_to_one, *inequalities]
+    constraints.append({"type": "ineq", "fun": lambda weights: float(vol_budget**2 - weights @ sigma @ weights)})
+
+    result = minimize(
+        objective,
+        x0=x0,
+        method="SLSQP",
+        bounds=bounds,
+        constraints=constraints,
+        options={"maxiter": 50, "ftol": 1e-8, "disp": False},
+    )
+    if not result.success:
+        raise RuntimeError(f"SLSQP returned no monthly TAA solution: {result.message}")
+    return _project_taa_weights_to_feasible_set(result.x, lower_bounds, upper_bounds, universe)
 
 
 def _ex_ante_vol(weights: pd.Series, cov_matrix: pd.DataFrame) -> float:
@@ -793,7 +846,8 @@ def solve_taa_monthly_result(
             message,
         )
 
-    if cp is None:
+    solve_config = EnsembleConfig() if config is None else config
+    if cp is None and solve_config.optimizer_mode == "cvar":
         message = "cvxpy is not installed; monthly TAA solve fell back to the last feasible weights."
         _append_breach_log("taa_monthly", as_of_date, "missing_dependency", message, breach_log_path)
         fallback = _fallback_weights("taa_monthly", prev_weights, available)
@@ -814,7 +868,6 @@ def solve_taa_monthly_result(
         .fillna(0.0)
         .to_numpy(dtype=float)
     )
-    solve_config = EnsembleConfig() if config is None else config
     sigma = cov_matrix.reindex(index=universe, columns=universe).fillna(0.0).to_numpy(dtype=float)
     sigma = (sigma + sigma.T) / 2.0
     if len(universe) > 0:
@@ -830,16 +883,27 @@ def solve_taa_monthly_result(
 
     try:
         if solve_config.optimizer_mode == "vol":
-            weights = cp.Variable(len(universe), nonneg=True)
-            turnover = cp.norm(weights - prev, 1)
-            constraints = [
-                cp.sum(weights) == 1.0,
-                weights >= lower_bounds.to_numpy(dtype=float),
-                weights <= upper_bounds.to_numpy(dtype=float),
-                weights <= SINGLE_SLEEVE_MAX,
-            ]
-            constraints.append(cp.quad_form(weights, cp.psd_wrap(sigma)) <= vol_budget**2)
-            slack_penalty = 0.0
+            projected = _solve_vol_taa_scipy(
+                universe=universe,
+                mu=mu,
+                sigma=sigma,
+                prev=prev,
+                lower_bounds=lower_bounds,
+                upper_bounds=upper_bounds,
+                vol_budget=vol_budget,
+                risk_aversion=risk_aversion,
+                turnover_cost=turnover_cost,
+            )
+            full_weights = _full_weights(projected, universe)
+            return _finalize_result(
+                full_weights,
+                "taa_monthly",
+                "optimal",
+                prev_weights,
+                cov_matrix,
+                turnover_cost,
+                False,
+            )
         else:
             if scenario_returns is None:
                 raise ValueError("CVaR mode requires `scenario_returns` built from strictly causal return history.")
@@ -885,9 +949,9 @@ def solve_taa_monthly_result(
         problem = cp.Problem(objective, constraints)
 
         try:
-            problem.solve(solver=cp.CLARABEL)
+            problem.solve(solver=cp.CLARABEL, max_iter=250)
         except Exception:
-            problem.solve()
+            problem.solve(solver=cp.SCS, max_iters=1000, eps=1e-4)
 
         if weights.value is None:
             raise RuntimeError(f"cvxpy returned no solution. Problem status: {problem.status}")
@@ -1077,17 +1141,15 @@ def ensemble_score(
     regime_tilt: pd.Series,
     trend_sig: pd.Series,
     momo_sig: pd.Series,
-    timesfm_mu: pd.Series,
     macro_factor_mu: pd.Series | None = None,
     config: EnsembleConfig | None = None,
 ) -> pd.Series:
-    """Blend the five signal layers into an annualized `mu` proxy.
+    """Blend the four signal layers into an annualized `mu` proxy.
 
     Inputs:
     - `regime_tilt`: regime-layer tilt vector.
     - `trend_sig`: smooth Faber trend score in `[-1, +1]`.
     - `momo_sig`: ADM momentum score in `[-1, +1]`.
-    - `timesfm_mu`: TimesFM annualized expected-return forecast.
     - `macro_factor_mu`: asset-specific macro factor signal (real yield,
       credit premium, crypto momentum) from ``macro_factor.py``.  If None
       or missing, the macro_factor_weight is redistributed to regime.
@@ -1113,19 +1175,10 @@ def ensemble_score(
     )
     # When macro signal is unavailable, its weight folds into the regime layer.
     regime_w = cfg.regime_weight + (cfg.macro_factor_weight if macro_factor_mu is None else 0.0)
-    # When TimesFM is disabled (all-zero mu), redistribute its weight equally
-    # into trend and momentum rather than leaving it dead.
-    timesfm_aligned = timesfm_mu.reindex(ALL_SAA).fillna(0.0)
-    timesfm_active = cfg.timesfm_weight > 0.0 and not bool((timesfm_aligned == 0.0).all())
-    timesfm_w = cfg.timesfm_weight if timesfm_active else 0.0
-    extra_per_signal = (cfg.timesfm_weight - timesfm_w) / 2.0
-    trend_w = cfg.trend_weight + extra_per_signal
-    momo_w = cfg.momo_weight + extra_per_signal
     score = (
         regime_w * regime_tilt * cfg.regime_scale
-        + trend_w * trend_sig * cfg.trend_scale
-        + momo_w * momo_sig * cfg.momo_scale
-        + timesfm_w * timesfm_aligned
+        + cfg.trend_weight * trend_sig * cfg.trend_scale
+        + cfg.momo_weight * momo_sig * cfg.momo_scale
         + cfg.macro_factor_weight * macro_mu * cfg.macro_scale
     )
     return score.reindex(ALL_TAA).fillna(0.0)

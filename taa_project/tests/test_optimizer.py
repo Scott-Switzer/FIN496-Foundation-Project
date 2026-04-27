@@ -27,38 +27,34 @@ def test_ensemble_score_respects_custom_config() -> None:
         regime_weight=0.5,
         trend_weight=0.25,
         momo_weight=0.25,
-        timesfm_weight=0.0,
         macro_factor_weight=0.0,
     )
     regime = pd.Series(1.0, index=ALL_SAA)
     trend = pd.Series(0.5, index=ALL_SAA)
     momo = pd.Series(-0.5, index=ALL_SAA)
-    timesfm = pd.Series(0.02, index=ALL_SAA)
 
     # No macro_factor_mu supplied → macro_factor_weight (0.0) folds into regime.
-    score = ensemble_score(regime, trend, momo, timesfm, macro_factor_mu=None, config=config)
+    score = ensemble_score(regime, trend, momo, macro_factor_mu=None, config=config)
 
     expected = 0.5 * 0.10 + 0.25 * 0.5 * 0.06 + 0.25 * -0.5 * 0.06
     assert np.isclose(score["SPXT"], expected), f"Got {score['SPXT']}, expected {expected}"
     assert score.index.tolist() == ALL_TAA
 
 
-def test_ensemble_score_redistributes_disabled_timesfm_to_trend_and_momo() -> None:
+def test_ensemble_score_redistributes_missing_macro_to_regime() -> None:
     config = EnsembleConfig(
         regime_weight=0.20,
         trend_weight=0.30,
         momo_weight=0.30,
-        timesfm_weight=0.20,
-        macro_factor_weight=0.0,
+        macro_factor_weight=0.20,
     )
-    regime = pd.Series(0.0, index=ALL_SAA)
+    regime = pd.Series(1.0, index=ALL_SAA)
     trend = pd.Series(1.0, index=ALL_SAA)
     momo = pd.Series(1.0, index=ALL_SAA)
-    timesfm = pd.Series(0.0, index=ALL_SAA)
 
-    score = ensemble_score(regime, trend, momo, timesfm, macro_factor_mu=None, config=config)
+    score = ensemble_score(regime, trend, momo, macro_factor_mu=None, config=config)
 
-    expected = (0.30 + 0.10) * 0.06 + (0.30 + 0.10) * 0.06
+    expected = (0.20 + 0.20) * 0.10 + 0.30 * 0.06 + 0.30 * 0.06
     assert np.isclose(score["SPXT"], expected)
 
 

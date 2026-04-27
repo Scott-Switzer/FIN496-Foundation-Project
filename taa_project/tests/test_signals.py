@@ -9,7 +9,6 @@ from taa_project.signals import SignalBundle
 from taa_project.signals.momentum_adm import cross_sectional_rank, period_return
 from taa_project.signals.regime_hmm import FittedRegimeModel, MACRO_FEATURES, build_features, classify_states
 from taa_project.signals.trend_faber import trend_score
-from taa_project.signals.vol_timesfm import TimesFMForecaster
 
 
 def test_signal_bundle_holds_expected_fields() -> None:
@@ -19,9 +18,6 @@ def test_signal_bundle_holds_expected_fields() -> None:
         regime_label="risk_on",
         trend=series,
         momo=series,
-        timesfm_mu=series,
-        timesfm_sigma=series,
-        timesfm_dir=series,
     )
 
     assert bundle.regime_label == "risk_on"
@@ -117,24 +113,3 @@ def test_regime_hmm_fit_and_classify_smoke() -> None:
         np.ones(len(classified)),
         atol=1e-6,
     )
-
-
-def test_timesfm_helper_transforms_are_finite() -> None:
-    forecast = {
-        "point": np.array([0.001, -0.0005, 0.0008]),
-        "quantiles": np.array(
-            [
-                [0.001, -0.01, -0.005, 0.0, 0.005, 0.01, 0.015, 0.02, 0.025, 0.03],
-                [0.0, -0.012, -0.006, -0.002, 0.002, 0.006, 0.01, 0.014, 0.018, 0.022],
-                [0.0005, -0.011, -0.006, -0.001, 0.003, 0.007, 0.011, 0.015, 0.019, 0.023],
-            ]
-        ),
-    }
-
-    mu = TimesFMForecaster.expected_return(forecast, horizon_days=3)
-    sigma = TimesFMForecaster.forecast_vol(forecast)
-    direction = TimesFMForecaster.directional_score(forecast)
-
-    assert np.isfinite(mu)
-    assert np.isfinite(sigma)
-    assert -1.0 <= direction <= 1.0

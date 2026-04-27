@@ -9,7 +9,7 @@ import pandas as pd
 
 from taa_project.analysis.common import deflated_sharpe_ratio, disclosed_trial_count, sortino_ratio
 from taa_project.analysis.reporting import _ips_compliance_rows
-from taa_project.config import ALL_TAA, OPPORTUNISTIC, SAA_BANDS, TAA_AUDIT_BANDS, TAA_BANDS
+from taa_project.config import ALL_TAA, OPPORTUNISTIC, OPPO_CAP, SAA_BANDS, TAA_AUDIT_BANDS, TAA_BANDS
 
 
 def _holdings_frame(index: pd.DatetimeIndex, **weights: float) -> pd.DataFrame:
@@ -156,13 +156,13 @@ def test_ips_compliance_rows_accepts_opportunistic_hedge_sleeve() -> None:
     index = pd.bdate_range("2024-02-01", periods=63)
     holdings = _holdings_frame(
         index,
-        SPXT=0.20,
+        SPXT=0.26,
         LBUSTRUU=0.28,
         BROAD_TIPS=0.24,
         CHF_FRANC=0.145,
-        BCEE1T_EUROAREA=0.045,
-        I02923JP_JAPAN_BOND=0.045,
-        LBEATREU_EUROBONDAGG=0.045,
+        BCEE1T_EUROAREA=0.025,
+        I02923JP_JAPAN_BOND=0.025,
+        LBEATREU_EUROBONDAGG=0.025,
     )
 
     violations = _ips_compliance_rows(
@@ -175,7 +175,7 @@ def test_ips_compliance_rows_accepts_opportunistic_hedge_sleeve() -> None:
     )
 
     assert violations == []
-    assert holdings.loc[:, OPPORTUNISTIC].sum(axis=1).max() <= 0.15
+    assert holdings.loc[:, OPPORTUNISTIC].sum(axis=1).max() <= OPPO_CAP
 
 
 def test_ips_compliance_rows_flags_drawdown_breach() -> None:

@@ -55,7 +55,6 @@ from taa_project.config import (
     TAA_BANDS,
     TAA_AUDIT_BANDS,
     TARGET_VOL,
-    TIMESFM_CACHE_PATH,
     VOL_CEILING,
 )
 from taa_project.compliance import append_compliance_rebalance_log, compliance_breach_rows
@@ -80,11 +79,6 @@ from taa_project.signals.regime_hmm import (
     regime_tilt_from_label,
 )
 from taa_project.signals.trend_faber import trend_score
-from taa_project.signals.vol_timesfm import (
-    TimesFMForecaster,
-    compute_vol_and_direction_signals,
-    timesfm_is_available,
-)
 from taa_project.saa.saa_comparison import bl_with_stress_views
 
 
@@ -95,7 +89,6 @@ DEFAULT_EMBARGO_BUSINESS_DAYS = 21
 DEFAULT_COVARIANCE_LOOKBACK = 252
 DEFAULT_COVARIANCE_MIN_OBSERVATIONS = 63
 DIAGONAL_DEFAULT = 0.04
-TIMESFM_CACHE_FILE = TIMESFM_CACHE_PATH
 
 WALKFORWARD_FOLDS_FILENAME = "walkforward_folds.csv"
 OOS_RETURNS_FILENAME = "oos_returns.csv"
@@ -338,7 +331,6 @@ def fold_specs_to_frame(fold_specs: list[FoldSpec]) -> pd.DataFrame:
 def estimate_taa_covariance(
     returns: pd.DataFrame,
     decision_date: pd.Timestamp,
-    timesfm_sigma: pd.Series | None = None,
     lookback_days: int = DEFAULT_COVARIANCE_LOOKBACK,
     min_observations: int = DEFAULT_COVARIANCE_MIN_OBSERVATIONS,
 ) -> pd.DataFrame:
@@ -347,7 +339,6 @@ def estimate_taa_covariance(
     Inputs:
     - `returns`: audited asset log-return dataframe.
     - `decision_date`: monthly decision date.
-    - `timesfm_sigma`: optional annualized volatility forecasts by asset.
     - `lookback_days`: trailing observed-window size for covariance.
     - `min_observations`: minimum observations required for pairwise covariances.
 
@@ -375,12 +366,6 @@ def estimate_taa_covariance(
     covariance_values = covariance.to_numpy(dtype=float)
     covariance_values = 0.7 * covariance_values + 0.3 * np.diag(np.diag(covariance_values))
 
-    if timesfm_sigma is not None:
-        for index, asset in enumerate(ALL_SAA):
-            sigma = timesfm_sigma.get(asset, np.nan)
-            if pd.notna(sigma) and sigma > 0:
-                covariance_values[index, index] = float(sigma) ** 2
-
     covariance_values = (covariance_values + covariance_values.T) / 2.0
     np.fill_diagonal(covariance_values, np.maximum(np.diag(covariance_values), DIAGONAL_DEFAULT))
     return pd.DataFrame(covariance_values, index=ALL_SAA, columns=ALL_SAA)
@@ -392,10 +377,6 @@ def build_signal_bundle_at_date(
     fred_features: pd.DataFrame,
     trend_signals: pd.DataFrame,
     momo_signals: pd.DataFrame,
-    prices: pd.DataFrame,
-    use_timesfm: bool,
-    forecaster: TimesFMForecaster | None,
-    timesfm_cache_path: Path | None,
     hmm_model_cache: object | None,
     hmm_states: int,
 ) -> tuple[SignalBundle, object | None]:
@@ -407,10 +388,6 @@ def build_signal_bundle_at_date(
     - `fred_features`: lagged FRED feature panel.
     - `trend_signals`: precomputed trend scores.
     - `momo_signals`: precomputed momentum scores.
-    - `prices`: audited asset price dataframe.
-    - `use_timesfm`: whether to invoke the optional TimesFM layer.
-    - `forecaster`: optional TimesFM forecaster instance.
-    - `timesfm_cache_path`: shared TimesFM parquet cache path.
     - `hmm_model_cache`: previous fold-local HMM model, reused on refit failure.
     - `hmm_states`: number of HMM states.
 
@@ -422,8 +399,6 @@ def build_signal_bundle_at_date(
     - Faber (2007): https://mebfaber.com/wp-content/uploads/2016/05/SSRN-id962461.pdf
     - Antonacci / ADM summary:
       https://allocatesmartly.com/taa-strategy-accelerating-dual-momentum/
-    - TimesFM model card:
-      https://huggingface.co/google/timesfm-2.5-200m-pytorch
 
     Point-in-time safety:
     - Safe. Each component slices its input history to `decision_date`.
@@ -453,30 +428,11 @@ def build_signal_bundle_at_date(
     trend = trend_signals.loc[:decision_date].iloc[-1].reindex(ALL_SAA).fillna(0.0)
     momo = momo_signals.loc[:decision_date].iloc[-1].reindex(ALL_SAA).fillna(0.0)
 
-    if use_timesfm:
-        timesfm_frame = compute_vol_and_direction_signals(
-            prices,
-            decision_date,
-            forecaster=forecaster,
-            horizon=64,
-            cache_path=TIMESFM_CACHE_FILE if timesfm_cache_path is None else timesfm_cache_path,
-        )
-        timesfm_mu = timesfm_frame.get("mu_ann", pd.Series(dtype=float)).reindex(ALL_SAA).fillna(0.0)
-        timesfm_sigma = timesfm_frame.get("sigma_ann_fcst", pd.Series(dtype=float)).reindex(ALL_SAA)
-        timesfm_dir = timesfm_frame.get("dir_score", pd.Series(dtype=float)).reindex(ALL_SAA).fillna(0.0)
-    else:
-        timesfm_mu = pd.Series(0.0, index=ALL_SAA, dtype=float)
-        timesfm_sigma = pd.Series(np.nan, index=ALL_SAA, dtype=float)
-        timesfm_dir = pd.Series(0.0, index=ALL_SAA, dtype=float)
-
     bundle = SignalBundle(
         regime_probs=regime_probs,
         regime_label=regime_label,
         trend=trend,
         momo=momo,
-        timesfm_mu=timesfm_mu,
-        timesfm_sigma=timesfm_sigma,
-        timesfm_dir=timesfm_dir,
     )
     return bundle, model
 
@@ -953,14 +909,12 @@ def run_walkforward(
     end: str = DEFAULT_END,
     folds: int = DEFAULT_FOLDS,
     embargo_business_days: int = DEFAULT_EMBARGO_BUSINESS_DAYS,
-    use_timesfm: bool = False,
     hmm_states: int = 3,
     vol_budget: float = TARGET_VOL,
     use_regime_budgets: bool = False,
     regime_vol_budgets: dict[str, float] | None = None,
     output_dir: Path = OUTPUT_DIR,
     ensemble_config: EnsembleConfig | None = None,
-    timesfm_cache_path: Path | None = TIMESFM_CACHE_FILE,
 ) -> dict[str, pd.DataFrame]:
     """Run the full walk-forward OOS TAA backtest.
 
@@ -969,7 +923,6 @@ def run_walkforward(
     - `folds`: number of contiguous OOS folds.
     - `embargo_business_days`: embargo applied before each fold's first test
       decision.
-    - `use_timesfm`: whether to invoke the optional TimesFM layer.
     - `hmm_states`: HMM state count.
     - `vol_budget`: internal ex-ante annualized volatility target.
     - `use_regime_budgets`: whether to use `REGIME_VOL_BUDGETS` when the
@@ -977,7 +930,6 @@ def run_walkforward(
     - `regime_vol_budgets`: optional override for the default regime budget map.
     - `output_dir`: destination for generated CSV outputs.
     - `ensemble_config`: optional signal-ensemble configuration.
-    - `timesfm_cache_path`: optional shared parquet cache path for TimesFM.
 
     Outputs:
     - Dictionary containing exported dataframes:
@@ -1040,13 +992,6 @@ def run_walkforward(
 
     fold_lookup = {decision_date: spec for spec in fold_specs for decision_date in spec.decision_dates}
 
-    if use_timesfm and not timesfm_is_available():
-        raise RuntimeError(
-            "TimesFM was requested with --timesfm, but the dependency is not installed. "
-            "Rerun with --no-timesfm or install the official google-research/timesfm stack."
-        )
-    timesfm_enabled = bool(use_timesfm)
-
     config = EnsembleConfig() if ensemble_config is None else ensemble_config
     active_regime_budgets = (
         config.vol_budget_by_regime
@@ -1091,10 +1036,6 @@ def run_walkforward(
             fred_features=hmm_features,  # 4-feature set (no DFII10) for HMM
             trend_signals=trend_signals,
             momo_signals=momo_signals,
-            prices=prices.loc[:, ALL_SAA],
-            use_timesfm=timesfm_enabled,
-            forecaster=None,
-            timesfm_cache_path=timesfm_cache_path if timesfm_enabled else None,
             hmm_model_cache=current_hmm_model,
             hmm_states=hmm_states,
         )
@@ -1115,7 +1056,6 @@ def run_walkforward(
             regime_tilt=regime_tilt,
             trend_sig=signal_bundle.trend,
             momo_sig=signal_bundle.momo,
-            timesfm_mu=signal_bundle.timesfm_mu,
             macro_factor_mu=macro_mu,
             config=config,
         )
@@ -1134,7 +1074,6 @@ def run_walkforward(
         covariance = estimate_taa_covariance(
             returns.loc[:, ALL_SAA],
             decision_date=pd.Timestamp(decision_date),
-            timesfm_sigma=signal_bundle.timesfm_sigma,
         )
         if config.use_bl_stress_views:
             mu_bl = bl_with_stress_views(
@@ -1343,7 +1282,6 @@ def main() -> None:
         default=DEFAULT_EMBARGO_BUSINESS_DAYS,
         help="Embargo width between each fold's initial train sample and first test decision.",
     )
-    parser.add_argument("--timesfm", action="store_true", help="Enable the optional TimesFM signal layer.")
     parser.add_argument(
         "--vol-budget",
         type=float,
@@ -1372,7 +1310,6 @@ def main() -> None:
         end=args.end,
         folds=args.folds,
         embargo_business_days=args.embargo_business_days,
-        use_timesfm=args.timesfm,
         vol_budget=args.vol_budget,
         use_regime_budgets=args.use_regime_budgets,
         output_dir=output_dir,

@@ -189,7 +189,7 @@ def build_deck(
                 [
                     "External consultant recommendation for a fictional $1.8B single-family office.",
                     "Pipeline is fully reproducible from `python taa_project/main.py`.",
-                    f"Final run mode: {'--timesfm' if int(dsr_summary['timesfm_enabled']) == 1 else '--no-timesfm'}.",
+                    f"Final run mode: {'--timesfm' if int(dsr_summary.get('timesfm_enabled', 1)) == 1 else '--no-timesfm'}.",
                 ],
                 styles,
             ),

@@ -77,7 +77,7 @@ OptimizationMode = Literal["saa_annual", "taa_monthly"]
 BREACH_LOG_PATH = OUTPUT_DIR / "breaches.log"
 OPTIMIZER_BREACHES_PATH = OUTPUT_DIR / "optimizer_breaches.csv"
 DIAGONAL_FLOOR = 1e-6
-DEFAULT_RISK_AVERSION = 0.0
+DEFAULT_RISK_AVERSION = 1.5
 DEFAULT_VOL_SLACK_PENALTY = 50.0
 DEFAULT_TURNOVER_SMOOTHING = 1e-10
 DEFAULT_CVAR_LOOKBACK_DAYS = 504
@@ -109,21 +109,24 @@ class EnsembleConfig:
 
     # Signal-ensemble weights must sum to 1.0 for a stable expected-return
     # scale.  Default allocation:
-    #   regime(0.20) + trend(0.30) + momo(0.30) + timesfm(0.15) + macro(0.05)
+    #   regime(0.20) + trend(0.25) + momo(0.25) + timesfm(0.15) + macro(0.15)
     #
     # History of changes (see DECISIONS.md):
     #   PR #6: regime 0.40→0.30 (freed weight to macro), macro 0.10→0.20 — reverted
     #   2026-04 fix: regime restored to 0.40, macro reduced to 0.05, timesfm 0.10→0.15
     #   2026-04 (this change): regime 0.40→0.20, trend/momo each 0.20→0.30.
-    #     HMM exits beat SAA only 41% of the time in OOS diagnostics; reducing regime
-    #     weight from 0.40 to 0.20 frees 0.20 for trend and momentum which showed
-    #     cleaner entry/exit quality. The daily defensive governor remains opt-in
-    #     rather than part of the default filed signal.
+    #   2026-04 macro fix: macro_factor_weight 0.05→0.15, trend/momo each 0.30→0.25.
+    #     2022 diagnostics show bonds and equities fell simultaneously (inflationary
+    #     crash). The macro_factor signal (real-yield tilt, credit premium) is the
+    #     only signal that can distinguish deflationary stress (→ bonds) from
+    #     inflationary stress (→ TIPS, gold, commodities). Raising its weight from
+    #     5% to 15% gives it enough influence to meaningfully shift allocations
+    #     during rate-shock environments. Trend and momentum each give up 5%.
     regime_weight: float = 0.20
-    trend_weight: float = 0.30
-    momo_weight: float = 0.30
+    trend_weight: float = 0.25
+    momo_weight: float = 0.25
     timesfm_weight: float = 0.15
-    macro_factor_weight: float = 0.05
+    macro_factor_weight: float = 0.15
     regime_scale: float = 0.10
     trend_scale: float = 0.06
     momo_scale: float = 0.06
@@ -270,6 +273,22 @@ def _project_taa_weights_to_feasible_set(
 
     bounds = Bounds(lower_bounds.values, upper_bounds.values)
     sum_to_one, inequalities = build_linear_constraints(assets)
+
+    # Opportunistic aggregate cap — OPPO_CAP is an aggregate constraint that
+    # build_linear_constraints does not include (it only covers Core/Satellite/
+    # NonTrad sleeves).  Without it the SLSQP can distribute weight across
+    # multiple oppo assets up to their individual per-asset caps, violating the
+    # 8 % sleeve total.
+    oppo_positions = [i for i, a in enumerate(assets) if a in set(OPPORTUNISTIC)]
+    if oppo_positions:
+        oppo_row = np.zeros((1, len(assets)))
+        for i in oppo_positions:
+            oppo_row[0, i] = 1.0
+        inequalities = [
+            *inequalities,
+            LinearConstraint(oppo_row, lb=np.array([-np.inf]), ub=np.array([OPPO_CAP])),
+        ]
+
     result = minimize(
         lambda weights: float(np.sum((weights - target) ** 2)),
         x0=np.clip(target, lower_bounds.values, upper_bounds.values),
@@ -280,7 +299,19 @@ def _project_taa_weights_to_feasible_set(
     )
     if not result.success:
         raise RuntimeError(f"Unable to project TAA weights into the feasible region: {result.message}")
-    return result.x
+    # Hard-clip to enforce per-asset bounds against SLSQP floating-point overshoot,
+    # then re-normalise via a single redistribution step (subtract from the asset
+    # farthest from its bound so as not to re-violate clipped constraints).
+    x = np.clip(result.x, lower_bounds.values, upper_bounds.values)
+    excess = float(x.sum() - 1.0)
+    if abs(excess) > 1e-10:
+        at_lower = x <= lower_bounds.values + 1e-10
+        at_upper = x >= upper_bounds.values - 1e-10
+        free = ~(at_lower | at_upper)
+        if free.any():
+            x[free] -= excess / float(free.sum())
+            x = np.clip(x, lower_bounds.values, upper_bounds.values)
+    return x
 
 
 def violates_taa_constraints(

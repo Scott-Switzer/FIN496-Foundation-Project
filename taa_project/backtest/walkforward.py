@@ -70,6 +70,7 @@ from taa_project.optimizer.nested_risk import solve_nested_taa
 from taa_project.signals import SignalBundle
 from taa_project.signals.dd_guardrail import dd_guardrail_multiplier, trailing_drawdown_series
 from taa_project.signals.macro_factor import compute_macro_factor_mu
+from taa_project.signals.vix_yield_curve import vix_yield_curve_tilt
 from taa_project.signals.momentum_adm import adm_score, cross_sectional_rank
 from taa_project.signals.regime_hmm import (
     MIN_TRAIN_OBSERVATIONS,
@@ -123,21 +124,20 @@ OPPORTUNISTIC_ALPHA_ASSETS = [
 ]
 
 EMERGENCY_TAA_TARGET_WEIGHTS = {
+    # Defensive capital-preservation portfolio used when the SLSQP projection
+    # fails to converge.  All opportunistic assets are excluded here because
+    # their IPS caps (OPPO_CAP=8%, OPPO_PER_ASSET=5%) are too tight to satisfy
+    # reliably in a degenerate-asset-availability scenario; the freed weight
+    # flows to LBUSTRUU and BROAD_TIPS instead.
     "SPXT": 0.20,
-    "LBUSTRUU": 0.26,
+    "LBUSTRUU": 0.405,
     "BROAD_TIPS": 0.245,
     "CHF_FRANC": 0.15,
-    "BCEE1T_EUROAREA": 0.04833333333333333,
-    "I02923JP_JAPAN_BOND": 0.04833333333333333,
-    "LBEATREU_EUROBONDAGG": 0.04833333333333333,
 }
 EMERGENCY_TAA_FILL_ORDER = (
     "CHF_FRANC",
     "LBUSTRUU",
     "BROAD_TIPS",
-    "BCEE1T_EUROAREA",
-    "I02923JP_JAPAN_BOND",
-    "LBEATREU_EUROBONDAGG",
     "SPXT",
 )
 SLEEVE_BUCKETS = {
@@ -1119,6 +1119,17 @@ def run_walkforward(
             macro_factor_mu=macro_mu,
             config=config,
         )
+
+        # VIX curve fast trip-wire: blended at 10% into the signal score.
+        # Reacts within days to VIX spikes (vs. HMM which needs weeks of data).
+        # Directly addresses 2008/2020-type crashes where the HMM is too slow.
+        # Point-in-time safe: uses only lagged FRED data up to decision_date.
+        vix_tilt = vix_yield_curve_tilt(
+            fred=fred_features,
+            as_of_date=pd.Timestamp(decision_date),
+        ).reindex(ALL_SAA).fillna(0.0)
+        VIX_BLEND = 0.10
+        signal_score = (1.0 - VIX_BLEND) * signal_score + VIX_BLEND * vix_tilt
 
         covariance = estimate_taa_covariance(
             returns.loc[:, ALL_SAA],

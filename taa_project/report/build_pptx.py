@@ -1,4 +1,4 @@
-"""Build the Whitmore presentation deck as a professional PPTX file — Times New Roman throughout."""
+"""Build the Whitmore presentation deck as a professional PPTX file , Times New Roman throughout."""
 
 from __future__ import annotations
 
@@ -191,7 +191,7 @@ def build_pptx(
     prs.slide_height = SLIDE_H
     blank = prs.slide_layouts[6]
 
-    # SLIDE 1 — TITLE
+    # SLIDE 1 , TITLE
     sl = prs.slides.add_slide(blank)
     _title_page(sl, "Whitmore Capital Partners", "Strategic and Tactical Asset Allocation")
     tx = sl.shapes.add_textbox(Inches(2.0), Inches(4.4), Inches(9.333), Inches(1.0))
@@ -206,31 +206,31 @@ def build_pptx(
     p2.font.color.rgb = RGBColor(0x80, 0x90, 0xAF)
     p2.font.name = FONT
 
-    # SLIDE 2 — AGENDA
+    # SLIDE 2 , AGENDA
     sl = prs.slides.add_slide(blank)
     _heading_bar(sl, "Agenda")
     _footer_bar(sl)
     _slide_number(sl, 2, TOTAL)
     _bullets(sl, Inches(1.0), Inches(1.2), Inches(11.0), Inches(5.8), [
-        "1. The Mandate — what the Investment Policy Statement requires",
-        "2. SAA Methodology — how we built the strategic allocation and why Minimum Variance",
-        "3. TAA Signal Design — the five-signal ensemble and how it works",
-        "4. Risk Budgets and the Opportunistic Sleeve — regime-aware risk and Appendix A assets",
-        "5. Walk-Forward Validation — how we tested the strategy out of sample",
-        "6. Performance Results — 8.41% return, 7.22% volatility, -21.9% maximum drawdown",
-        "7. IPS Compliance — zero hard constraint violations across the full backtest",
-        "8. Recommendation — deploy the SAA+TAA portfolio",
+        "1. The Mandate , what the Investment Policy Statement requires",
+        "2. SAA Methodology , how we built the strategic allocation and why Minimum Variance",
+        "3. TAA Signal Design , the five-signal ensemble and how it works",
+        "4. Risk Budgets and the Opportunistic Sleeve , regime-aware risk and Appendix A assets",
+        "5. Walk-Forward Validation , how we tested the strategy out of sample",
+        "6. Performance Results , 8.41% return, 7.22% volatility, -21.9% maximum drawdown",
+        "7. IPS Compliance , zero hard constraint violations across the full backtest",
+        "8. Recommendation , deploy the SAA+TAA portfolio",
     ])
 
-    # SLIDE 3 — THE MANDATE
+    # SLIDE 3 , THE MANDATE
     sl = prs.slides.add_slide(blank)
     _heading_bar(sl, "The Mandate", "Whitmore Capital Partners Investment Policy Statement")
     _footer_bar(sl)
     _slide_number(sl, 3, TOTAL)
     _bullets(sl, Inches(0.5), Inches(1.2), Inches(6.0), Inches(5.8), [
         "Return objective: 8.0% per year over rolling 5-year periods",
-        "Volatility ceiling: 15% annualized — hard constraint",
-        "Max drawdown: -25% peak-to-trough — hard constraint",
+        "Volatility ceiling: 15% annualized , hard constraint",
+        "Max drawdown: -25% peak-to-trough , hard constraint",
         "Core floor: 40%  |  Satellite cap: 45%  |  NT cap: 20%",
         "Opportunistic: 15% total / 5% per asset (Appendix A)",
         "No short selling. Fully invested at all times.",
@@ -251,7 +251,7 @@ def build_pptx(
         "  Equity: TA-125 Israel",
     ], size=Pt(10))
 
-    # SLIDE 4 — SAA
+    # SLIDE 4 , SAA
     sl = prs.slides.add_slide(blank)
     _heading_bar(sl, "SAA Construction", "Minimum Variance Optimization")
     _footer_bar(sl)
@@ -264,7 +264,7 @@ def build_pptx(
         "We chose Minimum Variance. Here is why:",
         "  Lowest realized volatility (7.7%) of all six methods.",
         "  Second-best drawdown profile (-32.5%).",
-        "  No expected-return forecasts — more defensible out of sample.",
+        "  No expected-return forecasts , more defensible out of sample.",
         "  Naturally tilts toward bonds, gold, and CHF.",
         "  Respects every IPS per-sleeve band and aggregate cap.",
         "",
@@ -283,7 +283,7 @@ def build_pptx(
         ])
     _table(sl, Inches(7.0), Inches(1.2), Inches(5.8), Inches(3.8), tdata)
 
-    # SLIDE 5 — TAA SIGNALS
+    # SLIDE 5 , TAA SIGNALS
     sl = prs.slides.add_slide(blank)
     _heading_bar(sl, "TAA Signal Ensemble", "Five Independent Sources of Information")
     _footer_bar(sl)
@@ -305,16 +305,16 @@ def build_pptx(
         "No forward-fill or backward-fill of price data at any point. Gaps (weekends, holidays) remain as missing values.",
     ], size=Pt(11))
 
-    # SLIDE 6 — RISK BUDGETS
+    # SLIDE 6 , RISK BUDGETS
     sl = prs.slides.add_slide(blank)
     _heading_bar(sl, "Regime-Aware Risk Budgeting and the Opportunistic Sleeve")
     _footer_bar(sl)
     _slide_number(sl, 6, TOTAL)
     _bullets(sl, Inches(0.5), Inches(1.2), Inches(6.0), Inches(5.0), [
         "The monthly volatility target shifts by HMM regime:",
-        "  Risk-On: 14% — capture upside",
-        "  Neutral: 12% — balanced posture",
-        "  Stress: 8% — protect capital",
+        "  Risk-On: 14% , capture upside",
+        "  Neutral: 12% , balanced posture",
+        "  Stress: 8% , protect capital",
         "",
         "All three stay under the 15% IPS ceiling.",
         "Causal: each month's budget uses the HMM",
@@ -337,7 +337,7 @@ def build_pptx(
         "All positions re-projected through IPS caps.",
     ], size=Pt(12))
 
-    # SLIDE 7 — WALK-FORWARD
+    # SLIDE 7 , WALK-FORWARD
     sl = prs.slides.add_slide(blank)
     _heading_bar(sl, "Walk-Forward Validation")
     _footer_bar(sl)
@@ -355,14 +355,14 @@ def build_pptx(
         f"Across {disclosed:,} disclosed trials",
     ])
 
-    # SLIDE 8 — CUMULATIVE GROWTH
+    # SLIDE 8 , CUMULATIVE GROWTH
     sl = prs.slides.add_slide(blank)
     _heading_bar(sl, "Cumulative Growth", "All Portfolios Indexed to 100")
     _footer_bar(sl)
     _slide_number(sl, 8, TOTAL)
     _image(sl, Inches(0.5), Inches(1.0), Inches(12.3), Inches(6.0), figure_dir / "fig01_cumgrowth.png")
 
-    # SLIDE 9 — DRAWDOWN
+    # SLIDE 9 , DRAWDOWN
     sl = prs.slides.add_slide(blank)
     _heading_bar(sl, "Drawdown Protection")
     _footer_bar(sl)
@@ -381,9 +381,9 @@ def build_pptx(
         "  2011, 2015: Drawdowns limited and recovered quickly",
     ])
 
-    # SLIDE 10 — METRICS
+    # SLIDE 10 , METRICS
     sl = prs.slides.add_slide(blank)
-    _heading_bar(sl, "Performance Metrics", "All Portfolios — Walk-Forward (2003-2025)")
+    _heading_bar(sl, "Performance Metrics", "All Portfolios , Walk-Forward (2003-2025)")
     _footer_bar(sl)
     _slide_number(sl, 10, TOTAL)
     pdata = [["Portfolio", "Return", "Volatility", "Max DD", "Sharpe", "Sortino", "Calmar", "VaR 95%"]]
@@ -401,13 +401,13 @@ def build_pptx(
     _table(sl, Inches(0.5), Inches(1.2), Inches(12.3), Inches(2.2), pdata)
     _bullets(sl, Inches(0.5), Inches(3.7), Inches(12.3), Inches(3.5), [
         "SAA+TAA clears the 8% return target by 41 basis points while staying at roughly half the IPS volatility ceiling.",
-        "Sharpe of 0.89 vs 0.61 for BM2 — a 0.28 improvement. Sortino of 1.25 confirms strong downside protection.",
+        "Sharpe of 0.89 vs 0.61 for BM2 , a 0.28 improvement. Sortino of 1.25 confirms strong downside protection.",
         "Maximum drawdown 13 percentage points better than BM2, 12 points better than BM1.",
         "Turnover: 5.2x per year. Cost drag: 0.26% per year at 5 bps round-trip. Net of all costs.",
         f"Deflated Sharpe Ratio: {dsr['baseline_dsr']:.3f} across {disclosed} disclosed trials (Bailey & Lopez de Prado, 2014).",
     ], size=Pt(12))
 
-    # SLIDE 11 — IPS COMPLIANCE
+    # SLIDE 11 , IPS COMPLIANCE
     sl = prs.slides.add_slide(blank)
     _heading_bar(sl, "IPS Compliance", "Every Hard Constraint Satisfied")
     _footer_bar(sl)
@@ -433,13 +433,13 @@ def build_pptx(
         f"  {taa_hard} hard (emergency portfolio edge case)",
         "",
         "Soft violations: market-driven events logged",
-        "as warnings — not optimizer failures.",
+        "as warnings , not optimizer failures.",
         "",
         "All aggregate caps satisfied on every day",
         "of the 6,901-day backtest.",
     ], size=Pt(12))
 
-    # SLIDE 12 — ATTRIBUTION
+    # SLIDE 12 , ATTRIBUTION
     sl = prs.slides.add_slide(blank)
     _heading_bar(sl, "Signal Contribution", "Leave-One-Out OOS Reruns")
     _footer_bar(sl)
@@ -459,7 +459,7 @@ def build_pptx(
         "reported in the full report appendix.",
     ])
 
-    # SLIDE 13 — WEIGHTS + REGIME
+    # SLIDE 13 , WEIGHTS + REGIME
     sl = prs.slides.add_slide(blank)
     _heading_bar(sl, "Portfolio Weights and Regime Detection")
     _footer_bar(sl)
@@ -469,10 +469,10 @@ def build_pptx(
     _bullets(sl, Inches(0.5), Inches(4.2), Inches(12.3), Inches(3.0), [
         "Left: Monthly TAA weight allocation. When stress hits (red bands below), equity exposure drops from roughly 40% to near 20%, replaced by bonds and CHF.",
         "Right: HMM regime labels. Risk-on (green), neutral (yellow), stress (red). Monthly refit. The model correctly identifies the 2008, 2011, 2015, 2020, and 2022 stress periods.",
-        "The VIX trip-wire fires within days during crashes — faster than the monthly HMM — providing same-week de-risking when markets move fastest.",
+        "The VIX trip-wire fires within days during crashes , faster than the monthly HMM , providing same-week de-risking when markets move fastest.",
     ], size=Pt(11))
 
-    # SLIDE 14 — RECOMMENDATION
+    # SLIDE 14 , RECOMMENDATION
     sl = prs.slides.add_slide(blank)
     _heading_bar(sl, "Recommendation")
     _footer_bar(sl)
@@ -485,9 +485,9 @@ def build_pptx(
         f"Deploy the SAA+TAA portfolio as the live policy allocation for the family's liquid assets.",
         "",
         f"Performance against IPS targets:",
-        f"  Annualized return: 8.41% — exceeds the 8.0% objective",
-        f"  Volatility: 7.22% — 52% inside the 15% ceiling",
-        f"  Max drawdown: -21.9% — 3.1 percentage points inside the -25% limit",
+        f"  Annualized return: 8.41% , exceeds the 8.0% objective",
+        f"  Volatility: 7.22% , 52% inside the 15% ceiling",
+        f"  Max drawdown: -21.9% , 3.1 percentage points inside the -25% limit",
         f"  Sharpe ratio: 0.89  |  Sortino: 1.25  |  Deflated Sharpe: 0.941",
         "",
         f"The TAA overlay adds 1.86% per year over the SAA, net of costs.",
@@ -497,7 +497,7 @@ def build_pptx(
         f"Annual IPS review per Section 10.3: return objective, opportunistic cap, signal weights.",
     ], size=Pt(12))
 
-    # SLIDE 15 — THANK YOU
+    # SLIDE 15 , THANK YOU
     sl = prs.slides.add_slide(blank)
     _title_page(sl, "Thank You", "Questions and Discussion")
     tx = sl.shapes.add_textbox(Inches(2.0), Inches(4.5), Inches(9.333), Inches(2.0))

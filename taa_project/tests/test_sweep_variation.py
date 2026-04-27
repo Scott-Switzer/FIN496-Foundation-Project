@@ -7,7 +7,7 @@ from pathlib import Path
 import pandas as pd
 
 
-REPO_ROOT = Path("/Users/scottthomasswitzer/Desktop/FIN496FP/FIN496-Foundation-Project")
+REPO_ROOT = Path(__file__).resolve().parents[2]
 RUNS_ROOT = REPO_ROOT / "taa_project" / "outputs" / "runs"
 ASSET_COLUMNS = [
     "SPXT",

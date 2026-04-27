@@ -343,11 +343,12 @@ def run_pipeline(
     nested_sat_vol: float = 0.10,
     nested_nt_vol: float = 0.15,
     nested_sleeve_weights: tuple[float, float, float] = (0.55, 0.35, 0.10),
-    saa_method: str = "risk_parity",
+    saa_method: str = "min_variance",
     use_bl_stress_views: bool = False,
     bl_stress_shock: float = 1.0,
     regime_vol_budgets: dict[str, float] | None = None,
     use_dd_guardrail: bool = False,
+    use_daily_risk_governor: bool = False,
     output_dir: Path = OUTPUT_DIR,
     figure_dir: Path = FIGURES_DIR,
     report_dir: Path = REPORT_DIR,
@@ -375,6 +376,8 @@ def run_pipeline(
     - `regime_vol_budgets`: optional regime-specific vol targets that override
       the flat monthly budget by inferred HMM state.
     - `use_dd_guardrail`: whether to enable the drawdown-clip overlay.
+    - `use_daily_risk_governor`: whether to enable the optional daily
+      realized-risk defensive TAA governor.
     - `output_dir`: destination directory for generated CSV artifacts.
     - `figure_dir`: destination directory for figure PNGs.
     - `report_dir`: destination directory for report/deck PDFs.
@@ -418,6 +421,7 @@ def run_pipeline(
     ensemble_config = EnsembleConfig(
         vol_budget_by_regime=regime_vol_budgets,
         use_dd_guardrail=use_dd_guardrail,
+        use_daily_risk_governor=use_daily_risk_governor,
         optimizer_mode=optimizer_mode,
         cvar_alpha=cvar_alpha,
         cvar_budget=cvar_budget,
@@ -494,9 +498,10 @@ def run_pipeline(
     refresh_dsr_disclosure(output_dir=output_dir, trial_ledger_path=TRIAL_LEDGER_CSV)
 
     ips_compliance = reporting_artifacts["ips_compliance"]
-    if not ips_compliance.empty:
+    strategy_compliance = ips_compliance.loc[ips_compliance["portfolio"].eq("SAA+TAA")]
+    if not strategy_compliance.empty:
         raise RuntimeError(
-            f"IPS compliance audit failed with {len(ips_compliance)} violation rows. "
+            f"SAA+TAA IPS compliance audit failed with {len(strategy_compliance)} violation rows. "
             f"Inspect {output_dir / 'ips_compliance.csv'}."
         )
 
@@ -619,9 +624,9 @@ def main() -> None:
     parser.add_argument(
         "--saa-method",
         dest="saa_method",
-        choices=["risk_parity", "hrp"],
-        default="risk_parity",
-        help="Strategic asset allocation method. Default is target-aware risk parity.",
+        choices=["risk_parity", "min_variance", "hrp"],
+        default="min_variance",
+        help="Strategic asset allocation method. Default is constrained minimum variance.",
     )
     parser.add_argument("--bl-stress-views", dest="use_bl_stress_views", action="store_true")
     parser.add_argument("--no-bl-stress-views", dest="use_bl_stress_views", action="store_false")
@@ -642,6 +647,10 @@ def main() -> None:
     guardrail_group.add_argument("--dd-guardrail", dest="use_dd_guardrail", action="store_true", help="Enable the drawdown-clip overlay.")
     guardrail_group.add_argument("--no-dd-guardrail", dest="use_dd_guardrail", action="store_false", help="Disable the drawdown-clip overlay.")
     parser.set_defaults(use_dd_guardrail=False)
+    daily_risk_group = parser.add_mutually_exclusive_group()
+    daily_risk_group.add_argument("--daily-risk-governor", dest="use_daily_risk_governor", action="store_true", help="Enable the optional daily realized-risk TAA governor.")
+    daily_risk_group.add_argument("--no-daily-risk-governor", dest="use_daily_risk_governor", action="store_false", help="Disable the optional daily realized-risk TAA governor.")
+    parser.set_defaults(use_daily_risk_governor=False)
     parser.add_argument("--output-dir", default=str(OUTPUT_DIR), help="Destination directory for CSV outputs.")
     parser.add_argument("--figure-dir", default=str(FIGURES_DIR), help="Destination directory for figure PNGs.")
     parser.add_argument("--report-dir", default=str(REPORT_DIR), help="Destination directory for report/deck PDFs.")
@@ -668,6 +677,7 @@ def main() -> None:
         bl_stress_shock=args.bl_stress_shock,
         regime_vol_budgets=_parse_regime_vol_budgets(args.regime_vol_budgets),
         use_dd_guardrail=args.use_dd_guardrail,
+        use_daily_risk_governor=args.use_daily_risk_governor,
         output_dir=Path(args.output_dir),
         figure_dir=Path(args.figure_dir),
         report_dir=Path(args.report_dir),

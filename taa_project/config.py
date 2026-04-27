@@ -96,7 +96,7 @@ SAA_TARGETS: Dict[str, float] = {
     "CHF_FRANC": 0.05,
 }
 
-# Per-sleeve TAA bands (Guidelines §TAA)
+# Per-sleeve TAA bands (Guidelines §TAA).
 TAA_BANDS: Dict[str, tuple] = {
     "SPXT":          (0.20, 0.45),
     "FTSE100":       (0.00, 0.15),

@@ -53,6 +53,7 @@ from taa_project.config import (
     SATELLITE_CAP,
     SINGLE_SLEEVE_MAX,
 )
+from taa_project.compliance import append_compliance_rebalance_log, compliance_breach_rows
 from taa_project.data_audit import load_asset_prices
 from taa_project.data_loader import log_returns
 
@@ -420,6 +421,45 @@ def solve_target_risk_parity(inputs: SAAOptimizationInputs) -> pd.Series:
     return pd.Series(solution, index=assets, dtype=float)
 
 
+def solve_minimum_variance(covariance: pd.DataFrame, assets: list[str]) -> pd.Series:
+    """Solve the constrained minimum-variance portfolio for one rebalance.
+
+    Inputs:
+    - `covariance`: annualized covariance matrix on the eligible universe.
+    - `assets`: ordered eligible asset list.
+
+    Outputs:
+    - Feasible minimum-variance weight series indexed by eligible asset.
+
+    Citation:
+    - Whitmore IPS strategic bands and SciPy SLSQP documentation:
+      https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.minimize.html
+
+    Point-in-time safety:
+    - Safe. The solve uses only constraints and covariance estimated from data
+      at or before the rebalance date.
+    """
+
+    cov = covariance.loc[assets, assets].to_numpy(dtype=float)
+    lower_bounds, upper_bounds = bounds_for_assets(assets)
+    bounds = Bounds(lower_bounds.values, upper_bounds.values)
+    sum_to_one, inequalities = build_linear_constraints(assets)
+    initial = project_policy_targets_to_feasible_set(lower_bounds, upper_bounds, assets)
+
+    result = minimize(
+        lambda weights: float(weights @ cov @ weights),
+        x0=initial,
+        method="SLSQP",
+        bounds=bounds,
+        constraints=[sum_to_one, *inequalities],
+        options={"maxiter": 1000, "ftol": 1e-12},
+    )
+
+    solution = initial if not result.success else result.x
+    solution = project_weights_to_feasible_set(solution, lower_bounds, upper_bounds, assets)
+    return pd.Series(solution, index=assets, dtype=float)
+
+
 def violates_saa_constraints(weights: pd.Series, eligible_assets: list[str], tolerance: float = 1e-8) -> bool:
     """Check whether a full-universe weight vector violates any SAA IPS rule.
 
@@ -484,12 +524,18 @@ def project_drifted_weights_to_compliance(
     """
 
     lower_bounds, upper_bounds = bounds_for_assets(eligible_assets)
-    projected = project_weights_to_feasible_set(
-        drifted_weights.reindex(eligible_assets).fillna(0.0),
-        lower_bounds,
-        upper_bounds,
-        eligible_assets,
-    )
+    try:
+        projected = project_weights_to_feasible_set(
+            drifted_weights.reindex(eligible_assets).fillna(0.0),
+            lower_bounds,
+            upper_bounds,
+            eligible_assets,
+        )
+    except RuntimeError:
+        # Drift shocks can occasionally leave SLSQP stuck at the boundary even
+        # though the IPS region is feasible. Falling back to the projected
+        # policy targets preserves compliance without inventing new signals.
+        projected = project_policy_targets_to_feasible_set(lower_bounds, upper_bounds, eligible_assets)
     full_weights = pd.Series(0.0, index=ALL_SAA, dtype=float)
     full_weights.loc[eligible_assets] = projected
     return full_weights
@@ -598,7 +644,7 @@ def compute_target_weights(
     returns: pd.DataFrame,
     rebalance_date: pd.Timestamp,
     inception_dates: pd.Series,
-    method: str = "risk_parity",
+    method: str = "min_variance",
 ) -> pd.Series:
     """Compute the constrained SAA target weights for one rebalance date.
 
@@ -607,7 +653,8 @@ def compute_target_weights(
     - `returns`: SAA log-return dataframe.
     - `rebalance_date`: date of the allocation decision.
     - `inception_dates`: first valid date per asset.
-    - `method`: SAA construction method, either `risk_parity` or `hrp`.
+    - `method`: SAA construction method, one of `risk_parity`,
+      `min_variance`, or `hrp`.
 
     Outputs:
     - Full-universe weight series with unavailable assets fixed at zero.
@@ -635,6 +682,8 @@ def compute_target_weights(
                 assets=observed_assets,
             )
         )
+    elif method in {"min_variance", "minimum_variance"}:
+        target_weights = solve_minimum_variance(covariance, observed_assets)
     elif method == "hrp":
         from taa_project.saa.saa_comparison import solve_hierarchical_risk_parity
 
@@ -650,16 +699,23 @@ def compute_target_weights(
 def simulate_portfolio(
     returns: pd.DataFrame,
     rebalance_targets: dict[pd.Timestamp, pd.Series],
+    rebalance_active_assets: dict[pd.Timestamp, list[str]],
     start_date: pd.Timestamp,
     end_date: pd.Timestamp,
+    compliance_log_path: Path | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Simulate daily SAA portfolio returns and record target weights.
 
     Inputs:
     - `returns`: SAA log-return dataframe with raw gaps preserved as `NaN`.
     - `rebalance_targets`: mapping from rebalance date to target weights.
+    - `rebalance_active_assets`: mapping from rebalance date to the sleeves that
+      were active at that rebalance and therefore subject to compliance checks
+      until the next scheduled rebalance.
     - `start_date`: first portfolio date.
     - `end_date`: final portfolio date.
+    - `compliance_log_path`: optional CSV destination for automatic
+      IPS-compliance rebalance documentation.
 
     Outputs:
     - Tuple `(weights_df, returns_df)` with daily policy target weights and
@@ -674,8 +730,10 @@ def simulate_portfolio(
     """
 
     calendar = returns.loc[start_date:end_date].index
-    current_target = rebalance_targets[start_date].copy()
+    current_policy_target = rebalance_targets[start_date].copy()
+    current_target = current_policy_target.copy()
     current_holdings = current_target.copy()
+    current_active_assets = list(rebalance_active_assets[start_date])
     weight_rows: list[pd.Series] = [current_target.rename(start_date)]
     return_rows = [
         {
@@ -691,28 +749,55 @@ def simulate_portfolio(
     ]
 
     for date in calendar[1:]:
+        turnover = 0.0
+        turnover_cost = 0.0
+        rebalance_flag = 0
+        scheduled_rebalance_flag = 0
+        compliance_rebalance_flag = 0
+
         gross_vector = np.exp(returns.loc[date, ALL_SAA].fillna(0.0))
         gross_return = float((current_holdings * (gross_vector - 1.0)).sum())
         post_move_value = current_holdings * gross_vector
         denominator = float(post_move_value.sum())
         post_move_holdings = post_move_value / denominator if denominator > 0 else current_holdings.copy()
 
-        turnover = 0.0
-        turnover_cost = 0.0
-        rebalance_flag = 0
-        scheduled_rebalance_flag = 0
-        compliance_rebalance_flag = 0
         if date in rebalance_targets:
-            target = rebalance_targets[date]
-            turnover = float((target - post_move_holdings).abs().sum())
-            turnover_cost = COST_PER_TURNOVER * turnover
+            current_policy_target = rebalance_targets[date].copy()
+            current_active_assets = list(rebalance_active_assets[date])
+            target = current_policy_target
+            turnover += float((target - post_move_holdings).abs().sum())
             current_target = target.copy()
             current_holdings = target.copy()
             scheduled_rebalance_flag = 1
             rebalance_flag = 1
         else:
             current_holdings = post_move_holdings.copy()
+            if violates_saa_constraints(current_holdings, current_active_assets):
+                pre_rebalance = current_holdings.copy()
+                projected = project_drifted_weights_to_compliance(current_holdings, current_active_assets)
+                compliance_turnover = float((projected - current_holdings).abs().sum())
+                turnover += compliance_turnover
+                current_target = projected.copy()
+                current_holdings = projected.copy()
+                compliance_rebalance_flag = 1
+                rebalance_flag = 1
+                if compliance_log_path is not None:
+                    append_compliance_rebalance_log(
+                        compliance_log_path,
+                        compliance_breach_rows(
+                            portfolio="SAA",
+                            date=date,
+                            decision_date=None,
+                            pre_trade_weights=pre_rebalance,
+                            post_trade_weights=projected,
+                            active_assets=current_active_assets,
+                            band_map=SAA_BANDS,
+                            turnover=compliance_turnover,
+                            remediation="projected_drifted_saa_holdings_to_ips_feasible_set",
+                        ),
+                    )
 
+        turnover_cost = COST_PER_TURNOVER * turnover
         portfolio_return = gross_return - turnover_cost
         return_rows.append(
             {
@@ -737,7 +822,7 @@ def build_saa_portfolio(
     start_date: str = DEFAULT_START,
     end_date: str = DEFAULT_END,
     output_dir: Path = OUTPUT_DIR,
-    method: str = "risk_parity",
+    method: str = "min_variance",
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Build the Whitmore annual-rebalanced SAA portfolio.
 
@@ -745,7 +830,8 @@ def build_saa_portfolio(
     - `start_date`: earliest allowed start date for portfolio inception.
     - `end_date`: last date to include in the output history.
     - `output_dir`: destination directory for output CSV files.
-    - `method`: SAA construction method, either `risk_parity` or `hrp`.
+    - `method`: SAA construction method, one of `risk_parity`,
+      `min_variance`, or `hrp`.
 
     Outputs:
     - Tuple `(weights_df, returns_df)` also written to `saa_weights.csv` and
@@ -764,16 +850,27 @@ def build_saa_portfolio(
     inception_dates = first_valid_dates(prices)
     schedule = build_rebalance_schedule(prices, start_date, end_date)
 
-    rebalance_targets = {
-        rebalance_date: compute_target_weights(prices, returns, rebalance_date, inception_dates, method=method)
-        for rebalance_date in schedule
-    }
+    rebalance_targets = {}
+    rebalance_active_assets: dict[pd.Timestamp, list[str]] = {}
+    for rebalance_date in schedule:
+        active_assets = available_assets_on(rebalance_date, inception_dates)
+        observed_assets = [asset for asset in active_assets if pd.notna(prices.loc[rebalance_date, asset])]
+        rebalance_active_assets[rebalance_date] = observed_assets
+        rebalance_targets[rebalance_date] = compute_target_weights(
+            prices,
+            returns,
+            rebalance_date,
+            inception_dates,
+            method=method,
+        )
 
     weights_df, returns_df = simulate_portfolio(
         returns=returns,
         rebalance_targets=rebalance_targets,
+        rebalance_active_assets=rebalance_active_assets,
         start_date=schedule[0],
         end_date=pd.Timestamp(end_date),
+        compliance_log_path=output_dir / "saa_compliance_rebalances.csv",
     )
 
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -805,9 +902,9 @@ def main() -> None:
     parser.add_argument("--end", default=DEFAULT_END, help="Last date to include in the output history.")
     parser.add_argument(
         "--method",
-        choices=["risk_parity", "hrp"],
-        default="risk_parity",
-        help="Strategic asset allocation method.",
+        choices=["risk_parity", "min_variance", "hrp"],
+        default="min_variance",
+        help="Strategic asset allocation method. Default is constrained minimum variance.",
     )
     parser.add_argument("--output-dir", default=str(OUTPUT_DIR), help="Destination directory for output CSV files.")
     args = parser.parse_args()

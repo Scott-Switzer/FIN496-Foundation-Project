@@ -1,2 +1,4 @@
 *
 !.gitignore
+!portfolio_metrics.csv
+!per_fold_metrics.csv

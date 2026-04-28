@@ -83,7 +83,7 @@ from taa_project.saa.saa_comparison import bl_with_stress_views
 
 
 DEFAULT_START = "2003-01-01"
-DEFAULT_END = "2025-12-31"
+DEFAULT_END = "2026-04-15"
 DEFAULT_FOLDS = 5
 DEFAULT_EMBARGO_BUSINESS_DAYS = 21
 DEFAULT_COVARIANCE_LOOKBACK = 252

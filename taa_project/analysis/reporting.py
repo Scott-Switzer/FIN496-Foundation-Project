@@ -38,6 +38,7 @@ import matplotlib
 
 matplotlib.use("Agg")
 
+import matplotlib.dates
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -134,6 +135,17 @@ FIGURE_FILENAMES = {
     "regime_shading": "fig05_regime_shading.png",
     "oos_folds": "fig06_oos_folds.png",
     "attribution": "fig07_attribution_bar.png",
+    "per_fold": "fig08_per_fold_oos.png",
+    "signal_history": "fig09_signal_history.png",
+    "contribution": "fig10_contribution.png",
+    "rolling_alpha": "fig11_rolling_alpha.png",
+    "regime_forward_returns": "fig12_regime_forward_returns.png",
+    "annual_returns": "fig13_annual_returns.png",
+    "risk_return_scatter": "fig14_risk_return_scatter.png",
+    "monthly_heatmap": "fig15_monthly_heatmap.png",
+    "annual_costs": "fig16_annual_costs.png",
+    "correlation_heatmap": "fig17_correlation_heatmap.png",
+    "cumulative_alpha": "fig18_cumulative_alpha.png",
 }
 
 LEGACY_SAA_METHODS = (
@@ -1139,6 +1151,92 @@ def refresh_dsr_disclosure(
     return {"baseline_dsr": baseline_dsr, "n_trials": float(n_trials)}
 
 
+_PORTFOLIO_COLORS = {
+    "SAA+TAA": "#1A365D",
+    "BM2":     "#B8860B",
+    "SAA":     "#2E86AB",
+    "BM1":     "#8D99AE",
+}
+
+_PORTFOLIO_ORDER = ["SAA+TAA", "BM2", "SAA", "BM1"]
+
+_PORTFOLIO_LW = {
+    "SAA+TAA": 2.4,
+    "BM2":     2.0,
+    "SAA":     1.8,
+    "BM1":     1.6,
+}
+
+_PORTFOLIO_LS = {
+    "SAA+TAA": "-",
+    "BM2":     "-",
+    "SAA":     "--",
+    "BM1":     ":",
+}
+
+
+def _apply_whitmore_theme() -> None:
+    plt.rcParams.update({
+        "figure.facecolor":      "#FFFFFF",
+        "savefig.facecolor":     "#FFFFFF",
+        "axes.facecolor":        "#F8FAFC",
+        "axes.edgecolor":        "#CBD5E0",
+        "axes.linewidth":        0.8,
+        "axes.grid":             True,
+        "axes.grid.axis":        "y",
+        "grid.color":            "#E2E8F0",
+        "grid.linewidth":        0.55,
+        "grid.linestyle":        ":",
+        "axes.spines.top":       False,
+        "axes.spines.right":     False,
+        "xtick.color":           "#4A5568",
+        "ytick.color":           "#4A5568",
+        "xtick.labelsize":       8.5,
+        "ytick.labelsize":       8.5,
+        "xtick.major.size":      0,
+        "ytick.major.size":      0,
+        "axes.labelsize":        9.0,
+        "axes.labelcolor":       "#2D3748",
+        "axes.labelpad":         7,
+        "axes.titlesize":        11.5,
+        "axes.titleweight":      "bold",
+        "axes.titlecolor":       "#1A365D",
+        "axes.titlelocation":    "left",
+        "axes.titlepad":         12,
+        "legend.frameon":        True,
+        "legend.framealpha":     0.94,
+        "legend.edgecolor":      "#CBD5E0",
+        "legend.fontsize":       8.5,
+        "legend.title_fontsize": 8.5,
+        "font.family":           "sans-serif",
+        "lines.solid_capstyle":  "round",
+    })
+
+
+def _style_ax(
+    ax: plt.Axes,
+    ylabel: str | None = None,
+    xlabel: str | None = None,
+    title: str | None = None,
+    pct_y: bool = False,
+    index_y: bool = False,
+) -> plt.Axes:
+    ax.spines["left"].set_color("#CBD5E0")
+    ax.spines["bottom"].set_color("#CBD5E0")
+    ax.tick_params(axis="both", which="both", length=0)
+    if ylabel:
+        ax.set_ylabel(ylabel)
+    if xlabel:
+        ax.set_xlabel(xlabel)
+    if title:
+        ax.set_title(title)
+    if pct_y:
+        ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{100 * v:.0f}%"))
+    if index_y:
+        ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{v:.0f}"))
+    return ax
+
+
 def _common_plot_window(panels: dict[str, object]) -> pd.Timestamp:
     """Return the latest common start date across all plotted portfolios.
 
@@ -1176,20 +1274,32 @@ def _save_cumgrowth_figure(panels: dict[str, object], figure_dir: Path) -> Path:
     - Ex-post plotting only.
     """
 
+    _apply_whitmore_theme()
     common_start = _common_plot_window(panels)
-    plt.figure(figsize=(10.5, 6.0))
-    for label, returns in panels["returns"].items():
+    fig, ax = plt.subplots(figsize=(11.0, 5.8))
+
+    ordered_labels = [lbl for lbl in _PORTFOLIO_ORDER if lbl in panels["returns"]]
+    other_labels = [lbl for lbl in panels["returns"] if lbl not in ordered_labels]
+    for label in ordered_labels + other_labels:
+        returns = panels["returns"][label]
         growth = cumulative_growth_index(returns.loc[common_start:])
-        plt.plot(growth.index, growth.values, label=label, linewidth=2.0)
-    plt.title("Cumulative Growth (Index 100)")
-    plt.ylabel("Index Level")
-    plt.xlabel("Date")
-    plt.legend()
-    plt.grid(alpha=0.25)
+        color = _PORTFOLIO_COLORS.get(label, "#718096")
+        lw = _PORTFOLIO_LW.get(label, 1.8)
+        ls = _PORTFOLIO_LS.get(label, "-")
+        ax.plot(growth.index, growth.values, label=label, color=color,
+                linewidth=lw, linestyle=ls, zorder=3)
+        if label == "SAA+TAA":
+            ax.fill_between(growth.index, growth.values, 100,
+                            where=(growth.values >= 100),
+                            color=color, alpha=0.07, zorder=1)
+
+    _style_ax(ax, ylabel="Index (100 = start)", title="Cumulative Growth  ·  Index 100", index_y=True)
+    ax.axhline(100, color="#CBD5E0", linewidth=0.8, linestyle="-", zorder=0)
+    ax.legend(loc="upper left")
+    fig.tight_layout()
     path = figure_dir / FIGURE_FILENAMES["cumgrowth"]
-    plt.tight_layout()
-    plt.savefig(path, dpi=220)
-    plt.close()
+    fig.savefig(path, dpi=220)
+    plt.close(fig)
     return path
 
 
@@ -1210,20 +1320,31 @@ def _save_drawdown_figure(panels: dict[str, object], figure_dir: Path) -> Path:
     - Ex-post plotting only.
     """
 
+    _apply_whitmore_theme()
     common_start = _common_plot_window(panels)
-    plt.figure(figsize=(10.5, 6.0))
-    for label, returns in panels["returns"].items():
-        drawdown = drawdown_curve(returns.loc[common_start:])
-        plt.plot(drawdown.index, drawdown.values, label=label, linewidth=2.0)
-    plt.title("Underwater Curves")
-    plt.ylabel("Drawdown")
-    plt.xlabel("Date")
-    plt.legend()
-    plt.grid(alpha=0.25)
+    fig, ax = plt.subplots(figsize=(11.0, 5.8))
+
+    ordered_labels = [lbl for lbl in _PORTFOLIO_ORDER if lbl in panels["returns"]]
+    other_labels = [lbl for lbl in panels["returns"] if lbl not in ordered_labels]
+    for label in ordered_labels + other_labels:
+        returns = panels["returns"][label]
+        dd = drawdown_curve(returns.loc[common_start:])
+        color = _PORTFOLIO_COLORS.get(label, "#718096")
+        lw = _PORTFOLIO_LW.get(label, 1.8)
+        ls = _PORTFOLIO_LS.get(label, "-")
+        ax.plot(dd.index, dd.values, label=label, color=color, linewidth=lw, linestyle=ls, zorder=3)
+        if label == "SAA+TAA":
+            ax.fill_between(dd.index, dd.values, 0, color=color, alpha=0.08, zorder=1)
+
+    ax.axhline(-MAX_DD, color="#C53030", linewidth=1.0, linestyle="--", zorder=2,
+               label=f"IPS MDD limit ({100 * MAX_DD:.0f}%)")
+    ax.axhline(0, color="#CBD5E0", linewidth=0.8, zorder=0)
+    _style_ax(ax, ylabel="Drawdown", title="Underwater Curves", pct_y=True)
+    ax.legend(loc="lower left")
+    fig.tight_layout()
     path = figure_dir / FIGURE_FILENAMES["drawdown"]
-    plt.tight_layout()
-    plt.savefig(path, dpi=220)
-    plt.close()
+    fig.savefig(path, dpi=220)
+    plt.close(fig)
     return path
 
 
@@ -1244,22 +1365,34 @@ def _save_rolling_vol_figure(panels: dict[str, object], figure_dir: Path) -> Pat
     - Ex-post plotting only.
     """
 
+    _apply_whitmore_theme()
     common_start = _common_plot_window(panels)
-    plt.figure(figsize=(10.5, 6.0))
-    for label, returns in panels["returns"].items():
-        rolling_vol = rolling_annualized_volatility(returns.loc[common_start:])
-        plt.plot(rolling_vol.index, rolling_vol.values, label=label, linewidth=2.0)
-    plt.axhline(VOL_CEILING, color="black", linestyle="--", linewidth=1.5, label="15% IPS Ceiling")
-    plt.axhline(TARGET_VOL, color="gray", linestyle=":", linewidth=1.5, label="10% Internal Buffer")
-    plt.title("12M Rolling Annualized Volatility")
-    plt.ylabel("Annualized Volatility")
-    plt.xlabel("Date")
-    plt.legend()
-    plt.grid(alpha=0.25)
+    fig, ax = plt.subplots(figsize=(11.0, 5.8))
+
+    ordered_labels = [lbl for lbl in _PORTFOLIO_ORDER if lbl in panels["returns"]]
+    other_labels = [lbl for lbl in panels["returns"] if lbl not in ordered_labels]
+    for label in ordered_labels + other_labels:
+        returns = panels["returns"][label]
+        rv = rolling_annualized_volatility(returns.loc[common_start:])
+        color = _PORTFOLIO_COLORS.get(label, "#718096")
+        lw = _PORTFOLIO_LW.get(label, 1.8)
+        ls = _PORTFOLIO_LS.get(label, "-")
+        ax.plot(rv.index, rv.values, label=label, color=color, linewidth=lw, linestyle=ls, zorder=3)
+
+    ax.axhline(VOL_CEILING, color="#C53030", linewidth=1.1, linestyle="--", zorder=2,
+               label=f"IPS ceiling ({100 * VOL_CEILING:.0f}%)")
+    ax.axhline(TARGET_VOL, color="#718096", linewidth=0.9, linestyle=":", zorder=2,
+               label=f"Target ({100 * TARGET_VOL:.0f}%)")
+    ax.fill_between(
+        ax.get_xlim(), TARGET_VOL, VOL_CEILING,
+        color="#FED7D7", alpha=0.18, zorder=0, transform=ax.get_yaxis_transform(),
+    )
+    _style_ax(ax, ylabel="Annualized Volatility (12M rolling)", title="Rolling Volatility", pct_y=True)
+    ax.legend(loc="upper left")
+    fig.tight_layout()
     path = figure_dir / FIGURE_FILENAMES["rolling_vol"]
-    plt.tight_layout()
-    plt.savefig(path, dpi=220)
-    plt.close()
+    fig.savefig(path, dpi=220)
+    plt.close(fig)
     return path
 
 
@@ -1322,24 +1455,28 @@ def _save_taa_weights_figure(panels: dict[str, object], figure_dir: Path) -> Pat
         Patch(facecolor="#2563eb", label="Opportunistic"),
     ]
 
-    plt.figure(figsize=(11.0, 6.2))
-    plt.stackplot(
+    _apply_whitmore_theme()
+    plt.rcParams["axes.grid.axis"] = "x"
+    fig, ax = plt.subplots(figsize=(11.0, 5.8))
+    ax.stackplot(
         weights.index,
         [weights[column].values for column in ALL_TAA],
         labels=ALL_TAA,
         colors=[color_map[column] for column in ALL_TAA],
-        alpha=0.9,
+        alpha=0.92,
     )
-    plt.title("TAA Target Weights")
-    plt.ylabel("Weight")
-    plt.xlabel("Date")
-    plt.ylim(0.0, 1.0)
-    plt.legend(handles=legend_patches, loc="upper left")
-    plt.grid(alpha=0.20)
+    ax.set_ylim(0.0, 1.0)
+    ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{100 * v:.0f}%"))
+    ax.spines["left"].set_color("#CBD5E0")
+    ax.spines["bottom"].set_color("#CBD5E0")
+    ax.tick_params(length=0)
+    ax.set_title("TAA Target Weights by Sleeve")
+    ax.set_ylabel("Allocation")
+    ax.legend(handles=legend_patches, loc="upper right", title="Sleeve")
+    fig.tight_layout()
     path = figure_dir / FIGURE_FILENAMES["taa_weights"]
-    plt.tight_layout()
-    plt.savefig(path, dpi=220)
-    plt.close()
+    fig.savefig(path, dpi=220)
+    plt.close(fig)
     return path
 
 
@@ -1360,34 +1497,60 @@ def _save_regime_shading_figure(panels: dict[str, object], figure_dir: Path) -> 
     - Ex-post plotting only.
     """
 
-    bm2_returns = panels["returns"]["BM2"].reindex(panels["regimes_daily"].index).dropna()
-    regime_series = forward_propagate(panels["regimes_daily"].reindex(bm2_returns.index))
-    growth = cumulative_growth_index(bm2_returns)
+    _apply_whitmore_theme()
+    regime_colors = {
+        "risk_on": "#C6F6D5",
+        "neutral": "#FEFCBF",
+        "stress":  "#FED7D7",
+    }
+    regime_labels_display = {
+        "risk_on": "Risk-On",
+        "neutral": "Neutral",
+        "stress":  "Stress",
+    }
 
-    regime_colors = {"risk_on": "#d8f3dc", "neutral": "#fef3c7", "stress": "#fecaca"}
-    plt.figure(figsize=(10.5, 6.0))
-    plt.plot(growth.index, growth.values, color="#1f2937", linewidth=2.0, label="BM2")
+    plot_labels = [lbl for lbl in ("SAA+TAA", "BM2", "BM1") if lbl in panels["returns"]]
+    common_start = _common_plot_window(panels)
+
+    ref_returns = panels["returns"][plot_labels[0]].reindex(panels["regimes_daily"].index).dropna()
+    regime_series = forward_propagate(panels["regimes_daily"].reindex(ref_returns.index))
+
+    fig, ax = plt.subplots(figsize=(11.0, 5.8))
 
     current_regime = None
     block_start = None
+    seen_regimes: set[str] = set()
     for date, regime in regime_series.items():
         if regime != current_regime:
             if current_regime is not None and block_start is not None:
-                plt.axvspan(block_start, date, color=regime_colors.get(current_regime, "#e5e7eb"), alpha=0.45)
+                lbl = regime_labels_display.get(current_regime, current_regime) if current_regime not in seen_regimes else None
+                ax.axvspan(block_start, date,
+                           color=regime_colors.get(current_regime, "#E5E7EB"),
+                           alpha=0.45, zorder=1, label=lbl)
+                seen_regimes.add(current_regime)
             current_regime = regime
             block_start = date
     if current_regime is not None and block_start is not None:
-        plt.axvspan(block_start, regime_series.index.max(), color=regime_colors.get(current_regime, "#e5e7eb"), alpha=0.45)
+        lbl = regime_labels_display.get(current_regime, current_regime) if current_regime not in seen_regimes else None
+        ax.axvspan(block_start, regime_series.index.max(),
+                   color=regime_colors.get(current_regime, "#E5E7EB"),
+                   alpha=0.45, zorder=1, label=lbl)
 
-    plt.title("BM2 Growth with HMM Regime Shading")
-    plt.ylabel("Index Level")
-    plt.xlabel("Date")
-    plt.grid(alpha=0.25)
-    plt.legend()
+    for label in plot_labels:
+        returns = panels["returns"][label]
+        growth = cumulative_growth_index(returns.loc[common_start:])
+        ax.plot(growth.index, growth.values,
+                color=_PORTFOLIO_COLORS.get(label, "#718096"),
+                linewidth=_PORTFOLIO_LW.get(label, 1.8),
+                linestyle=_PORTFOLIO_LS.get(label, "-"),
+                label=label, zorder=4)
+
+    _style_ax(ax, ylabel="Index (100 = start)", title="Cumulative Growth  ·  HMM Regime Shading", index_y=True)
+    ax.legend(loc="upper left")
+    fig.tight_layout()
     path = figure_dir / FIGURE_FILENAMES["regime_shading"]
-    plt.tight_layout()
-    plt.savefig(path, dpi=220)
-    plt.close()
+    fig.savefig(path, dpi=220)
+    plt.close(fig)
     return path
 
 
@@ -1408,21 +1571,43 @@ def _save_fold_figure(panels: dict[str, object], figure_dir: Path) -> Path:
     - Ex-post plotting only.
     """
 
+    _apply_whitmore_theme()
     folds = panels["folds"].copy()
-    plt.figure(figsize=(10.5, 4.8))
+    n_folds = len(folds)
+    bar_h = 0.38
+
+    train_color   = "#A0AEC0"
+    embargo_color = "#B8860B"
+    test_color    = "#1A365D"
+
+    fig, ax = plt.subplots(figsize=(11.0, max(3.2, n_folds * 0.9 + 1.4)))
     for idx, row in folds.iterrows():
         y = idx + 1
-        plt.plot([row["train_start"], row["train_end"]], [y, y], color="#94a3b8", linewidth=6, solid_capstyle="butt")
-        plt.plot([row["embargo_start"], row["embargo_end"]], [y, y], color="#f59e0b", linewidth=6, solid_capstyle="butt")
-        plt.plot([row["test_start"], row["test_end"]], [y, y], color="#2563eb", linewidth=6, solid_capstyle="butt")
-    plt.title("Walk-Forward Fold Structure")
-    plt.xlabel("Date")
-    plt.yticks(range(1, len(folds) + 1), [f"Fold {i}" for i in folds["fold_id"]])
-    plt.grid(alpha=0.25)
+        ax.barh(y, (row["train_end"] - row["train_start"]).days, left=row["train_start"],
+                height=bar_h, color=train_color, align="center", zorder=3)
+        ax.barh(y, (row["embargo_end"] - row["embargo_start"]).days, left=row["embargo_start"],
+                height=bar_h, color=embargo_color, align="center", zorder=3)
+        ax.barh(y, (row["test_end"] - row["test_start"]).days, left=row["test_start"],
+                height=bar_h, color=test_color, align="center", zorder=3)
+
+    ax.set_yticks(range(1, n_folds + 1))
+    ax.set_yticklabels([f"Fold {int(row['fold_id'])}" for _, row in folds.iterrows()])
+    ax.xaxis.set_major_locator(matplotlib.dates.YearLocator(2))
+    ax.xaxis.set_major_formatter(matplotlib.dates.DateFormatter("%Y"))
+    ax.spines["left"].set_visible(False)
+    ax.spines["bottom"].set_color("#CBD5E0")
+    ax.tick_params(length=0)
+    ax.set_title("Walk-Forward OOS Fold Structure")
+    legend_patches = [
+        Patch(facecolor=train_color,   label="Train"),
+        Patch(facecolor=embargo_color, label="Embargo"),
+        Patch(facecolor=test_color,    label="Test (OOS)"),
+    ]
+    ax.legend(handles=legend_patches, loc="lower right")
+    fig.tight_layout()
     path = figure_dir / FIGURE_FILENAMES["oos_folds"]
-    plt.tight_layout()
-    plt.savefig(path, dpi=220)
-    plt.close()
+    fig.savefig(path, dpi=220)
+    plt.close(fig)
     return path
 
 
@@ -1443,24 +1628,531 @@ def _save_attribution_figure(per_signal: pd.DataFrame, figure_dir: Path) -> Path
     - Ex-post plotting only.
     """
 
+    _apply_whitmore_theme()
     plot_df = per_signal.loc[per_signal["layer"] != "baseline"].copy()
-    plt.figure(figsize=(9.5, 5.6))
-    plt.bar(plot_df["layer"], plot_df["marginal_oos_sharpe"], color="#2563eb")
-    plt.axhline(0.0, color="black", linewidth=1.0)
-    plt.title("Per-Signal Marginal OOS Sharpe Contribution")
-    plt.ylabel("Baseline Sharpe Minus Ablated Sharpe")
-    plt.xlabel("Signal Layer")
-    plt.grid(axis="y", alpha=0.25)
+    values = plot_df["marginal_oos_sharpe"].to_numpy(dtype=float)
+    bar_colors = [_PORTFOLIO_COLORS["SAA+TAA"] if v >= 0 else "#C53030" for v in values]
+
+    fig, ax = plt.subplots(figsize=(9.5, 5.2))
+    bars = ax.bar(plot_df["layer"], values, color=bar_colors, width=0.55, zorder=3,
+                  edgecolor="white", linewidth=0.5)
+    ax.axhline(0.0, color="#CBD5E0", linewidth=0.9, zorder=2)
+
+    for bar, val in zip(bars, values):
+        offset = 0.005 if val >= 0 else -0.005
+        va = "bottom" if val >= 0 else "top"
+        ax.text(bar.get_x() + bar.get_width() / 2, val + offset,
+                f"{val:+.3f}", ha="center", va=va, fontsize=8, color="#2D3748")
+
+    _style_ax(ax, ylabel="ΔSharpe vs. ablated baseline",
+              title="Signal Attribution  ·  Marginal OOS Sharpe")
+    ax.tick_params(axis="x", labelrotation=15)
+    fig.tight_layout()
     path = figure_dir / FIGURE_FILENAMES["attribution"]
-    plt.tight_layout()
-    plt.savefig(path, dpi=220)
-    plt.close()
+    fig.savefig(path, dpi=220)
+    plt.close(fig)
+    return path
+
+
+def _save_per_fold_figure(per_fold_metrics: pd.DataFrame, figure_dir: Path) -> Path:
+    """Save per-fold OOS annualized return and Sharpe bar chart.
+
+    Point-in-time safety:
+    - Ex-post plotting only.
+    """
+
+    _apply_whitmore_theme()
+    df = per_fold_metrics.copy()
+    fold_labels = [f"Fold {int(fid)}" for fid in df["fold_id"]]
+    x = np.arange(len(df))
+    navy = _PORTFOLIO_COLORS["SAA+TAA"]
+    gold  = _PORTFOLIO_COLORS["BM2"]
+
+    fig, (ax_ret, ax_sr) = plt.subplots(1, 2, figsize=(11.0, 5.0))
+
+    bars_ret = ax_ret.bar(x, df["annualized_return"] * 100, color=navy, width=0.55,
+                          zorder=3, edgecolor="white", linewidth=0.5)
+    ax_ret.axhline(0, color="#CBD5E0", linewidth=0.8)
+    for bar, val in zip(bars_ret, df["annualized_return"]):
+        ax_ret.text(bar.get_x() + bar.get_width() / 2, val * 100 + 0.3,
+                    f"{val * 100:.1f}%", ha="center", va="bottom", fontsize=8.5, color="#2D3748")
+    ax_ret.set_xticks(x)
+    ax_ret.set_xticklabels(fold_labels)
+    _style_ax(ax_ret, ylabel="Annualized Return", title="OOS Return by Fold  ·  SAA+TAA")
+    ax_ret.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{v:.0f}%"))
+
+    bars_sr = ax_sr.bar(x, df["sharpe"], color=gold, width=0.55,
+                        zorder=3, edgecolor="white", linewidth=0.5)
+    ax_sr.axhline(0, color="#CBD5E0", linewidth=0.8)
+    for bar, val in zip(bars_sr, df["sharpe"]):
+        ax_sr.text(bar.get_x() + bar.get_width() / 2, val + 0.02,
+                   f"{val:.2f}", ha="center", va="bottom", fontsize=8.5, color="#2D3748")
+    ax_sr.set_xticks(x)
+    ax_sr.set_xticklabels(fold_labels)
+    _style_ax(ax_sr, ylabel="Sharpe Ratio (rf = 2%)", title="OOS Sharpe by Fold  ·  SAA+TAA")
+
+    fig.tight_layout(w_pad=3.0)
+    path = figure_dir / FIGURE_FILENAMES["per_fold"]
+    fig.savefig(path, dpi=220)
+    plt.close(fig)
+    return path
+
+
+def _save_signal_history_figure(
+    oos_regimes: pd.DataFrame,
+    vix_signal: pd.DataFrame,
+    figure_dir: Path,
+) -> Path:
+    """Save a 3-panel signal history chart: regime probs, VIX z-score, yield-curve component.
+
+    Point-in-time safety:
+    - Ex-post plotting only.
+    """
+
+    _apply_whitmore_theme()
+    regime_colors = {
+        "risk_on": "#C6F6D5",
+        "neutral": "#FEFCBF",
+        "stress":  "#FED7D7",
+    }
+    regime_line_colors = {
+        "p_risk_on": "#276749",
+        "p_neutral": "#B7791F",
+        "p_stress":  "#C53030",
+    }
+    regime_line_labels = {
+        "p_risk_on": "P(Risk-On)",
+        "p_neutral": "P(Neutral)",
+        "p_stress":  "P(Stress)",
+    }
+
+    fig, axes = plt.subplots(3, 1, figsize=(11.0, 8.5), sharex=True,
+                             constrained_layout=True,
+                             gridspec_kw={"hspace": 0.10, "height_ratios": [1.4, 1, 1]})
+
+    # Panel 1: stacked regime probabilities
+    ax1 = axes[0]
+    probs = oos_regimes[["p_risk_on", "p_neutral", "p_stress"]].copy().clip(0, 1)
+    ax1.stackplot(
+        probs.index,
+        probs["p_risk_on"].values,
+        probs["p_neutral"].values,
+        probs["p_stress"].values,
+        labels=["Risk-On", "Neutral", "Stress"],
+        colors=["#C6F6D5", "#FEFCBF", "#FED7D7"],
+        alpha=0.85,
+    )
+    ax1.set_ylim(0, 1)
+    ax1.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{100 * v:.0f}%"))
+    ax1.spines["left"].set_color("#CBD5E0")
+    ax1.spines["bottom"].set_visible(False)
+    ax1.tick_params(length=0)
+    ax1.set_title("TAA Signal History  ·  Regime · VIX · Yield Curve", pad=12,
+                  fontsize=11.5, fontweight="bold", color="#1A365D", loc="left")
+    ax1.set_ylabel("HMM Regime Prob.")
+    ax1.legend(loc="upper right", fontsize=8)
+
+    # Panel 2: VIX z-score
+    ax2 = axes[1]
+    vix_aligned = vix_signal["vix_z"].reindex(probs.index, method="ffill")
+    ax2.fill_between(vix_aligned.index, vix_aligned.values, 0,
+                     where=(vix_aligned.values > 0), color="#FED7D7", alpha=0.6, zorder=1)
+    ax2.fill_between(vix_aligned.index, vix_aligned.values, 0,
+                     where=(vix_aligned.values <= 0), color="#C6F6D5", alpha=0.6, zorder=1)
+    ax2.plot(vix_aligned.index, vix_aligned.values, color="#C53030", linewidth=1.2, zorder=3)
+    ax2.axhline(0, color="#CBD5E0", linewidth=0.8)
+    ax2.spines["left"].set_color("#CBD5E0")
+    ax2.spines["bottom"].set_visible(False)
+    ax2.tick_params(length=0)
+    ax2.set_ylabel("VIX z-score")
+
+    # Panel 3: yield-curve component (term spread)
+    ax3 = axes[2]
+    curve_aligned = vix_signal["curve_component"].reindex(probs.index, method="ffill")
+    ax3.fill_between(curve_aligned.index, curve_aligned.values, 0,
+                     where=(curve_aligned.values > 0), color="#BEE3F8", alpha=0.6, zorder=1)
+    ax3.fill_between(curve_aligned.index, curve_aligned.values, 0,
+                     where=(curve_aligned.values <= 0), color="#FED7D7", alpha=0.6, zorder=1)
+    ax3.plot(curve_aligned.index, curve_aligned.values, color="#2B6CB0", linewidth=1.2, zorder=3)
+    ax3.axhline(0, color="#CBD5E0", linewidth=0.8)
+    ax3.spines["left"].set_color("#CBD5E0")
+    ax3.spines["bottom"].set_color("#CBD5E0")
+    ax3.tick_params(length=0)
+    ax3.set_ylabel("Yield Curve Score")
+
+    path = figure_dir / FIGURE_FILENAMES["signal_history"]
+    fig.savefig(path, dpi=220)
+    plt.close(fig)
+    return path
+
+
+def _save_contribution_figure(metrics: pd.DataFrame, figure_dir: Path) -> Path:
+    """Save a grouped bar comparing annualized return and Sharpe across all 4 portfolios.
+
+    Point-in-time safety:
+    - Ex-post plotting only.
+    """
+
+    _apply_whitmore_theme()
+    order = ["BM1", "BM2", "SAA", "SAA+TAA"]
+    df = metrics.set_index("portfolio").reindex(order).reset_index()
+    colors = [_PORTFOLIO_COLORS.get(p, "#718096") for p in order]
+    x = np.arange(len(df))
+
+    fig, (ax_ret, ax_sr) = plt.subplots(1, 2, figsize=(11.0, 5.0))
+
+    bars_ret = ax_ret.bar(x, df["annualized_return"] * 100, color=colors, width=0.55,
+                          zorder=3, edgecolor="white", linewidth=0.5)
+    ax_ret.axhline(0, color="#CBD5E0", linewidth=0.8)
+    for bar, val in zip(bars_ret, df["annualized_return"]):
+        ax_ret.text(bar.get_x() + bar.get_width() / 2, val * 100 + 0.15,
+                    f"{val * 100:.1f}%", ha="center", va="bottom", fontsize=9, color="#2D3748")
+    ax_ret.set_xticks(x)
+    ax_ret.set_xticklabels(order)
+    ax_ret.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{v:.0f}%"))
+    _style_ax(ax_ret, ylabel="Annualized Return", title="Return Contribution")
+
+    bars_sr = ax_sr.bar(x, df["sharpe_rf_2pct"], color=colors, width=0.55,
+                        zorder=3, edgecolor="white", linewidth=0.5)
+    ax_sr.axhline(0, color="#CBD5E0", linewidth=0.8)
+    for bar, val in zip(bars_sr, df["sharpe_rf_2pct"]):
+        ax_sr.text(bar.get_x() + bar.get_width() / 2, val + 0.015,
+                   f"{val:.2f}", ha="center", va="bottom", fontsize=9, color="#2D3748")
+    ax_sr.set_xticks(x)
+    ax_sr.set_xticklabels(order)
+    _style_ax(ax_sr, ylabel="Sharpe Ratio (rf = 2%)", title="Risk-Adjusted Contribution")
+
+    fig.suptitle("Portfolio Contribution  ·  BM1 → BM2 → SAA → SAA+TAA",
+                 fontsize=11.5, fontweight="bold", color="#1A365D", x=0.02, ha="left", y=1.01)
+    fig.tight_layout(w_pad=3.0)
+    path = figure_dir / FIGURE_FILENAMES["contribution"]
+    fig.savefig(path, dpi=220, bbox_inches="tight")
+    plt.close(fig)
+    return path
+
+
+def _save_rolling_alpha_figure(panels: dict[str, object], figure_dir: Path) -> Path:
+    """Rolling 12M alpha of SAA+TAA vs BM2."""
+
+    _apply_whitmore_theme()
+    common_start = _common_plot_window(panels)
+    taa = panels["returns"]["SAA+TAA"].loc[common_start:]
+    bm2 = panels["returns"]["BM2"].reindex(taa.index).fillna(0.0)
+    alpha_daily = taa - bm2
+    rolling_alpha = alpha_daily.rolling(252).apply(
+        lambda x: (1 + x).prod() ** (252 / len(x)) - 1, raw=True
+    )
+
+    fig, ax = plt.subplots(figsize=(11.0, 5.0))
+    ax.fill_between(rolling_alpha.index, rolling_alpha.values * 100, 0,
+                    where=(rolling_alpha.values >= 0), color=_PORTFOLIO_COLORS["SAA+TAA"],
+                    alpha=0.25, zorder=1, label="Positive alpha")
+    ax.fill_between(rolling_alpha.index, rolling_alpha.values * 100, 0,
+                    where=(rolling_alpha.values < 0), color="#C53030",
+                    alpha=0.25, zorder=1, label="Negative alpha")
+    ax.plot(rolling_alpha.index, rolling_alpha.values * 100,
+            color=_PORTFOLIO_COLORS["SAA+TAA"], linewidth=1.8, zorder=3)
+    ax.axhline(0, color="#CBD5E0", linewidth=0.9, zorder=2)
+    _style_ax(ax, ylabel="Rolling 12M Alpha vs BM2 (%)",
+              title="Rolling Alpha  ·  SAA+TAA vs BM2  ·  12-Month Window")
+    ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{v:.1f}%"))
+    ax.legend(loc="upper left")
+    fig.tight_layout()
+    path = figure_dir / FIGURE_FILENAMES["rolling_alpha"]
+    fig.savefig(path, dpi=220)
+    plt.close(fig)
+    return path
+
+
+def _save_regime_forward_returns_figure(
+    oos_regimes: pd.DataFrame,
+    oos_returns: pd.DataFrame,
+    figure_dir: Path,
+) -> Path:
+    """Boxplot of 1M forward returns on SAA+TAA by HMM regime label."""
+
+    _apply_whitmore_theme()
+    regime_col = oos_regimes["regime"].reindex(oos_returns.index, method="ffill")
+    ret = oos_returns["portfolio_return"].copy()
+
+    fwd_1m = ret.shift(-21).dropna()
+    regime_aligned = regime_col.reindex(fwd_1m.index).dropna()
+    fwd_1m = fwd_1m.reindex(regime_aligned.index)
+
+    order = ["risk_on", "neutral", "stress"]
+    labels = ["Risk-On", "Neutral", "Stress"]
+    box_colors = ["#C6F6D5", "#FEFCBF", "#FED7D7"]
+    box_edge   = ["#276749", "#B7791F", "#C53030"]
+    data = [fwd_1m.loc[regime_aligned == r].values * 100 for r in order]
+
+    fig, ax = plt.subplots(figsize=(8.0, 5.2))
+    bp = ax.boxplot(data, patch_artist=True, widths=0.45, medianprops={"linewidth": 2.0},
+                    flierprops={"marker": "o", "markersize": 3, "alpha": 0.4})
+    for patch, fc, ec in zip(bp["boxes"], box_colors, box_edge):
+        patch.set_facecolor(fc)
+        patch.set_edgecolor(ec)
+        patch.set_linewidth(1.2)
+    for whisker in bp["whiskers"]:
+        whisker.set_color("#718096")
+    for cap in bp["caps"]:
+        cap.set_color("#718096")
+
+    for i, (d, label) in enumerate(zip(data, labels), start=1):
+        median_val = float(np.median(d))
+        ax.text(i, median_val + 0.08, f"{median_val:.2f}%",
+                ha="center", va="bottom", fontsize=8.5, color="#2D3748", fontweight="bold")
+        n = len(d)
+        ax.text(i, ax.get_ylim()[0] + 0.05, f"n={n}",
+                ha="center", va="bottom", fontsize=7.5, color="#718096")
+
+    ax.axhline(0, color="#CBD5E0", linewidth=0.9, zorder=0)
+    ax.set_xticks([1, 2, 3])
+    ax.set_xticklabels(labels)
+    _style_ax(ax, ylabel="21-Day Forward Return (%)",
+              title="Signal Validation  ·  Forward Returns by Regime")
+    ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{v:.1f}%"))
+    fig.tight_layout()
+    path = figure_dir / FIGURE_FILENAMES["regime_forward_returns"]
+    fig.savefig(path, dpi=220)
+    plt.close(fig)
+    return path
+
+
+def _save_annual_returns_figure(panels: dict[str, object], figure_dir: Path) -> Path:
+    """Side-by-side annual return bars for all 4 portfolios."""
+
+    _apply_whitmore_theme()
+    common_start = _common_plot_window(panels)
+    order = [lbl for lbl in _PORTFOLIO_ORDER if lbl in panels["returns"]]
+    annual: dict[str, pd.Series] = {}
+    for label in order:
+        ret = panels["returns"][label].loc[common_start:]
+        annual[label] = ret.resample("YE").apply(lambda x: (1 + x).prod() - 1) * 100
+
+    all_years = sorted(set().union(*[s.index.year for s in annual.values()]))
+    x = np.arange(len(all_years))
+    n = len(order)
+    bar_w = 0.8 / n
+
+    fig, ax = plt.subplots(figsize=(max(11.0, len(all_years) * 0.55), 5.5))
+    for i, label in enumerate(order):
+        vals = [float(annual[label].get(pd.Timestamp(f"{yr}-12-31"), np.nan)) for yr in all_years]
+        offset = (i - n / 2 + 0.5) * bar_w
+        bars = ax.bar(x + offset, vals, width=bar_w * 0.92,
+                      color=_PORTFOLIO_COLORS.get(label, "#718096"),
+                      label=label, zorder=3, edgecolor="white", linewidth=0.4)
+
+    ax.axhline(0, color="#CBD5E0", linewidth=0.9, zorder=2)
+    ax.set_xticks(x)
+    ax.set_xticklabels([str(yr) for yr in all_years], rotation=45, ha="right")
+    ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{v:.0f}%"))
+    _style_ax(ax, ylabel="Annual Return", title="Annual Returns  ·  All Portfolios")
+    ax.legend(loc="upper left")
+    fig.tight_layout()
+    path = figure_dir / FIGURE_FILENAMES["annual_returns"]
+    fig.savefig(path, dpi=220)
+    plt.close(fig)
+    return path
+
+
+def _save_risk_return_scatter_figure(metrics: pd.DataFrame, figure_dir: Path) -> Path:
+    """Risk/return scatter with all 4 portfolios and iso-Sharpe lines."""
+
+    _apply_whitmore_theme()
+    order = ["BM1", "BM2", "SAA", "SAA+TAA"]
+    df = metrics.set_index("portfolio").reindex(order).reset_index()
+
+    fig, ax = plt.subplots(figsize=(8.0, 6.0))
+
+    vol_range = np.linspace(0.04, 0.14, 200)
+    for sr, ls in [(0.5, ":"), (1.0, "--")]:
+        ret_line = 0.02 + sr * vol_range
+        ax.plot(vol_range * 100, ret_line * 100, color="#CBD5E0",
+                linewidth=0.9, linestyle=ls, zorder=1,
+                label=f"SR = {sr:.1f}")
+
+    for _, row in df.iterrows():
+        label = row["portfolio"]
+        vol = float(row["annualized_volatility"]) * 100
+        ret = float(row["annualized_return"]) * 100
+        color = _PORTFOLIO_COLORS.get(label, "#718096")
+        ax.scatter(vol, ret, color=color, s=120, zorder=4, edgecolors="white", linewidths=1.2)
+        ax.annotate(label, (vol, ret), xytext=(6, 4), textcoords="offset points",
+                    fontsize=9, color=color, fontweight="bold")
+
+    ax.axvline(15.0, color="#C53030", linewidth=0.9, linestyle="--", zorder=2,
+               label="IPS vol ceiling (15%)")
+    ax.axhline(8.0, color="#B8860B", linewidth=0.9, linestyle=":", zorder=2,
+               label="8% return target")
+    _style_ax(ax, xlabel="Annualized Volatility (%)", ylabel="Annualized Return (%)",
+              title="Risk  ·  Return  ·  All Portfolios")
+    ax.xaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{v:.0f}%"))
+    ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{v:.0f}%"))
+    ax.legend(loc="upper left", fontsize=8)
+    fig.tight_layout()
+    path = figure_dir / FIGURE_FILENAMES["risk_return_scatter"]
+    fig.savefig(path, dpi=220)
+    plt.close(fig)
+    return path
+
+
+def _save_monthly_heatmap_figure(panels: dict[str, object], figure_dir: Path) -> Path:
+    """Calendar heatmap of monthly returns for SAA+TAA."""
+
+    import seaborn as sns
+
+    _apply_whitmore_theme()
+    ret = panels["returns"]["SAA+TAA"]
+    monthly = ret.resample("ME").apply(lambda x: (1 + x).prod() - 1) * 100
+    monthly_df = monthly.rename("ret").reset_index()
+    monthly_df["year"] = monthly_df["date"].dt.year
+    monthly_df["month"] = monthly_df["date"].dt.month
+    pivot = monthly_df.pivot(index="year", columns="month", values="ret")
+    pivot.columns = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                     "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+    pivot = pivot.sort_index(ascending=False)
+
+    fig, ax = plt.subplots(figsize=(13.0, max(6.0, len(pivot) * 0.38 + 1.5)))
+    abs_max = float(np.nanpercentile(np.abs(pivot.values), 97))
+    sns.heatmap(
+        pivot, ax=ax, annot=True, fmt=".1f", annot_kws={"size": 7.5},
+        cmap=sns.diverging_palette(10, 133, as_cmap=True),
+        center=0, vmin=-abs_max, vmax=abs_max,
+        linewidths=0.4, linecolor="#E2E8F0",
+        cbar_kws={"label": "Monthly Return (%)", "shrink": 0.6},
+    )
+    ax.set_title("Monthly Returns  ·  SAA+TAA (%)", pad=12,
+                 fontsize=11.5, fontweight="bold", color="#1A365D", loc="left")
+    ax.set_xlabel("")
+    ax.set_ylabel("")
+    ax.tick_params(length=0, labelsize=8.5)
+    fig.tight_layout()
+    path = figure_dir / FIGURE_FILENAMES["monthly_heatmap"]
+    fig.savefig(path, dpi=220, bbox_inches="tight")
+    plt.close(fig)
+    return path
+
+
+def _save_annual_costs_figure(oos_returns: pd.DataFrame, figure_dir: Path) -> Path:
+    """Annual turnover cost drag for SAA+TAA."""
+
+    _apply_whitmore_theme()
+    oos_returns = oos_returns.copy()
+    oos_returns.index = pd.to_datetime(oos_returns.index)
+    annual_cost = oos_returns["turnover_cost"].resample("YE").sum() * 100
+    annual_gross = oos_returns["gross_return"].resample("YE").apply(
+        lambda x: (1 + x).prod() - 1
+    ) * 100
+    annual_net = oos_returns["portfolio_return"].resample("YE").apply(
+        lambda x: (1 + x).prod() - 1
+    ) * 100
+
+    years = annual_cost.index.year
+    x = np.arange(len(years))
+
+    fig, (ax_cost, ax_drag) = plt.subplots(1, 2, figsize=(11.0, 5.0))
+
+    ax_cost.bar(x, annual_cost.values, color=_PORTFOLIO_COLORS["BM2"],
+                width=0.55, zorder=3, edgecolor="white", linewidth=0.5)
+    for xi, val in zip(x, annual_cost.values):
+        ax_cost.text(xi, val + 0.005, f"{val:.2f}%", ha="center", va="bottom",
+                     fontsize=8, color="#2D3748")
+    ax_cost.set_xticks(x)
+    ax_cost.set_xticklabels([str(yr) for yr in years], rotation=45, ha="right")
+    ax_cost.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{v:.2f}%"))
+    _style_ax(ax_cost, ylabel="Annual Cost Drag", title="Transaction Costs by Year")
+
+    drag = annual_gross.values - annual_net.values
+    ax_drag.bar(x, drag, color=_PORTFOLIO_COLORS["SAA+TAA"],
+                width=0.55, zorder=3, edgecolor="white", linewidth=0.5)
+    ax_drag.set_xticks(x)
+    ax_drag.set_xticklabels([str(yr) for yr in years], rotation=45, ha="right")
+    ax_drag.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{v:.2f}%"))
+    _style_ax(ax_drag, ylabel="Gross − Net Return (%)", title="Gross vs Net Return Spread")
+
+    fig.tight_layout(w_pad=3.0)
+    path = figure_dir / FIGURE_FILENAMES["annual_costs"]
+    fig.savefig(path, dpi=220)
+    plt.close(fig)
+    return path
+
+
+def _save_correlation_heatmap_figure(figure_dir: Path, output_dir: Path) -> Path:
+    """Correlation heatmap of SAA asset log-returns."""
+
+    import seaborn as sns
+    from taa_project.config import ALL_SAA
+
+    _apply_whitmore_theme()
+    log_ret = pd.read_csv(output_dir / "asset_log_returns.csv", index_col="Date", parse_dates=True)
+    saa_ret = log_ret[[c for c in ALL_SAA if c in log_ret.columns]].dropna(how="all")
+    corr = saa_ret.loc["2003":].corr(min_periods=63).round(2)
+
+    ticker_labels = {
+        "SPXT": "US Eq.", "FTSE100": "UK Eq.", "NIKKEI225": "Japan Eq.",
+        "CSI300_CHINA": "China Eq.", "LBUSTRUU": "US Agg.", "BROAD_TIPS": "TIPS",
+        "B3REITT": "REIT", "XAU": "Gold", "SILVER_FUT": "Silver",
+        "BITCOIN": "Bitcoin", "CHF_FRANC": "CHF",
+    }
+    corr.index   = [ticker_labels.get(c, c) for c in corr.index]
+    corr.columns = [ticker_labels.get(c, c) for c in corr.columns]
+
+    fig, ax = plt.subplots(figsize=(9.0, 7.5))
+    mask = np.triu(np.ones_like(corr, dtype=bool), k=1)
+    sns.heatmap(
+        corr, ax=ax, mask=mask, annot=True, fmt=".2f", annot_kws={"size": 8},
+        cmap=sns.diverging_palette(10, 133, as_cmap=True),
+        center=0, vmin=-1, vmax=1,
+        linewidths=0.4, linecolor="#E2E8F0",
+        cbar_kws={"label": "Pearson Correlation", "shrink": 0.7},
+    )
+    ax.set_title("SAA Asset Correlations  ·  2003–2025", pad=12,
+                 fontsize=11.5, fontweight="bold", color="#1A365D", loc="left")
+    ax.tick_params(length=0, labelsize=8.5)
+    fig.tight_layout()
+    path = figure_dir / FIGURE_FILENAMES["correlation_heatmap"]
+    fig.savefig(path, dpi=220, bbox_inches="tight")
+    plt.close(fig)
+    return path
+
+
+def _save_cumulative_alpha_figure(panels: dict[str, object], figure_dir: Path) -> Path:
+    """Cumulative alpha of SAA+TAA vs BM2, and SAA vs BM2."""
+
+    _apply_whitmore_theme()
+    common_start = _common_plot_window(panels)
+
+    bm2 = panels["returns"]["BM2"].loc[common_start:]
+    taa = panels["returns"]["SAA+TAA"].reindex(bm2.index).fillna(0.0)
+    saa = panels["returns"]["SAA"].reindex(bm2.index).fillna(0.0)
+
+    cum_alpha_taa = ((1 + (taa - bm2)).cumprod() - 1) * 100
+    cum_alpha_saa = ((1 + (saa - bm2)).cumprod() - 1) * 100
+
+    fig, ax = plt.subplots(figsize=(11.0, 5.0))
+    ax.fill_between(cum_alpha_taa.index, cum_alpha_taa.values, 0,
+                    where=(cum_alpha_taa.values >= 0),
+                    color=_PORTFOLIO_COLORS["SAA+TAA"], alpha=0.15, zorder=1)
+    ax.plot(cum_alpha_taa.index, cum_alpha_taa.values,
+            color=_PORTFOLIO_COLORS["SAA+TAA"], linewidth=2.0, label="SAA+TAA vs BM2", zorder=3)
+    ax.plot(cum_alpha_saa.index, cum_alpha_saa.values,
+            color=_PORTFOLIO_COLORS["SAA"], linewidth=1.6,
+            linestyle="--", label="SAA vs BM2", zorder=3)
+    ax.axhline(0, color="#CBD5E0", linewidth=0.9, zorder=2)
+    _style_ax(ax, ylabel="Cumulative Alpha vs BM2 (%)",
+              title="Cumulative Alpha  ·  TAA Overlay & SAA vs BM2")
+    ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{v:.0f}%"))
+    ax.legend(loc="upper left")
+    fig.tight_layout()
+    path = figure_dir / FIGURE_FILENAMES["cumulative_alpha"]
+    fig.savefig(path, dpi=220)
+    plt.close(fig)
     return path
 
 
 def build_reporting(
     start: str = "2003-01-01",
-    end: str = "2025-12-31",
+    end: str = "2026-04-15",
     folds: int = 5,
     use_timesfm: bool = False,
     vol_budget: float = TARGET_VOL,
@@ -1566,6 +2258,11 @@ def build_reporting(
     )
     merged_trial_ledger.to_csv(TRIAL_LEDGER_CSV, index=False)
 
+    vix_signal_history = pd.read_csv(
+        output_dir / "vix_yield_curve_signal_history.csv",
+        index_col="as_of_date",
+        parse_dates=True,
+    )
     figures = {
         "cumgrowth": _save_cumgrowth_figure(panels, figure_dir),
         "drawdown": _save_drawdown_figure(panels, figure_dir),
@@ -1574,6 +2271,21 @@ def build_reporting(
         "regime_shading": _save_regime_shading_figure(panels, figure_dir),
         "oos_folds": _save_fold_figure(panels, figure_dir),
         "attribution": _save_attribution_figure(attribution["per_signal"], figure_dir),
+        "per_fold": _save_per_fold_figure(per_fold_metrics, figure_dir),
+        "signal_history": _save_signal_history_figure(
+            outputs["oos_regimes"], vix_signal_history, figure_dir
+        ),
+        "contribution": _save_contribution_figure(metrics, figure_dir),
+        "rolling_alpha": _save_rolling_alpha_figure(panels, figure_dir),
+        "regime_forward_returns": _save_regime_forward_returns_figure(
+            outputs["oos_regimes"], outputs["oos_returns"], figure_dir
+        ),
+        "annual_returns": _save_annual_returns_figure(panels, figure_dir),
+        "risk_return_scatter": _save_risk_return_scatter_figure(metrics, figure_dir),
+        "monthly_heatmap": _save_monthly_heatmap_figure(panels, figure_dir),
+        "annual_costs": _save_annual_costs_figure(outputs["oos_returns"], figure_dir),
+        "correlation_heatmap": _save_correlation_heatmap_figure(figure_dir, output_dir),
+        "cumulative_alpha": _save_cumulative_alpha_figure(panels, figure_dir),
     }
 
     return {
@@ -1612,7 +2324,7 @@ def main() -> None:
 
     parser = argparse.ArgumentParser(description="Build Whitmore reporting artifacts.")
     parser.add_argument("--start", default="2003-01-01", help="First OOS date for attribution dependency rebuilds.")
-    parser.add_argument("--end", default="2025-12-31", help="Last OOS date for attribution dependency rebuilds.")
+    parser.add_argument("--end", default="2026-04-15", help="Last OOS date for attribution dependency rebuilds.")
     parser.add_argument("--folds", type=int, default=5, help="Number of walk-forward folds.")
     parser.add_argument("--timesfm", action="store_true", help="Enable the optional TimesFM layer in dependency rebuilds.")
     parser.add_argument("--vol-budget", type=float, default=TARGET_VOL, help="Internal ex-ante vol target used by the TAA optimizer.")

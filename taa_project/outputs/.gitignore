@@ -2,5 +2,8 @@
 !.gitignore
 !portfolio_metrics.csv
 !per_fold_metrics.csv
+!reports/
 !reports/*.pdf
 !reports/*.pptx
+!figures/
+!figures/*.png

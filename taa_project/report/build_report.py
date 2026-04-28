@@ -213,19 +213,21 @@ def build_report(
         "framework described in this report as the live policy portfolio for the family's liquid assets. "
         "We built the Strategic Asset Allocation using minimum-variance optimization, then applied a "
         "monthly Tactical Asset Allocation overlay using five independent signals. We tested the strategy "
-        "out of sample from January 2003 through December 2025 across five expanding walk-forward folds.",
+        "out of sample from January 2003 through April 2026 across five expanding walk-forward folds.",
         S["body"]))
 
     story.append(Paragraph(
-        "The combined portfolio cleared every requirement in the Investment Policy Statement. It earned "
-        "8.41% per year with 7.22% annualized volatility and a maximum drawdown of -21.9%. These results "
+        f"The combined portfolio cleared every requirement in the Investment Policy Statement. It earned "
+        f"{_fmt_pct(taa['annualized_return'])} per year with {_fmt_pct(taa['annualized_volatility'])} "
+        f"annualized volatility and a maximum drawdown of {_fmt_pct(taa['max_drawdown'])}. These results "
         "compare favorably to both Benchmark 1 (60/40) and Benchmark 2 (Diversified Policy Portfolio). "
         "Each benchmark fell short on return and significantly exceeded the -25% drawdown threshold during "
-        "the 2008 and 2020 market disruptions, reaching -33.9% and -35.2% respectively.",
+        f"the 2008 and 2020 market disruptions, reaching {_fmt_pct(bm1['max_drawdown'])} and "
+        f"{_fmt_pct(bm2['max_drawdown'])} respectively.",
         S["body"]))
 
     story.append(Spacer(1, 0.1 * cm))
-    story.append(Paragraph("Key Metrics (2003-2025 walk-forward, net of 5 bps round-trip costs):", S["label"]))
+    story.append(Paragraph("Key Metrics (2003–2026 walk-forward, net of 5 bps round-trip costs):", S["label"]))
     story.append(Spacer(1, 0.05 * cm))
     perf_data = [
         ["Portfolio", "Return p.a.", "Volatility p.a.", "Max Drawdown", "Sharpe", "Sortino", "Calmar", "VaR 95%"],
@@ -253,13 +255,17 @@ def build_report(
 
     story.append(Spacer(1, 0.1 * cm))
     story.append(Paragraph("What the TAA overlay contributes:", S["label"]))
+    taa_excess_bps = round((taa["annualized_return"] - saa["annualized_return"]) * 10000)
+    vol_diff_pp = round((bm2["annualized_volatility"] - taa["annualized_volatility"]) * 100, 1)
+    dd_improvement_pp = round((bm2["max_drawdown"] - taa["max_drawdown"]) * 100, 1)
     story.append(Paragraph(
-        "The overlay adds 186 basis points of annual return over the standalone SAA after costs. "
-        "It holds realized volatility 2.4 percentage points below Benchmark 2. It cuts the worst "
-        "drawdown from -35.2% (BM2) to -21.9% (13 percentage point improvement). And it reduces "
-        "IPS compliance violations from 831 in the standalone SAA to just 214 soft violations "
-        "(market-driven volatility spikes during crisis periods) plus 12 hard violations "
-        "(an edge case in the emergency fallback portfolio, since corrected in the current code).",
+        f"The overlay adds {taa_excess_bps} basis points of annual return over the standalone SAA "
+        f"after costs. It holds realized volatility {vol_diff_pp} percentage points below Benchmark 2. "
+        f"It cuts the worst drawdown from {_fmt_pct(bm2['max_drawdown'])} (BM2) to "
+        f"{_fmt_pct(taa['max_drawdown'])} ({abs(dd_improvement_pp):.0f} percentage point improvement). "
+        f"And it reduces IPS compliance violations from {saa_c} in the standalone SAA to just "
+        f"{taa_soft} soft violations (market-driven volatility spikes during crisis periods) "
+        f"with {taa_hard} hard violations.",
         S["body"]))
 
     # PAGE 3 - SAA CONSTRUCTION
@@ -438,7 +444,7 @@ def build_report(
     story.append(Spacer(1, 0.12 * cm))
     story.append(Paragraph("Walk-Forward Validation", S["h1"]))
     story.append(Paragraph(
-        "We split the out-of-sample period (January 2003 through December 2025) into five "
+        "We split the out-of-sample period (January 2003 through April 2026) into five "
         "contiguous, expanding folds. Each fold's initial HMM training window is separated from "
         "its first test decision by a 21-business-day embargo to prevent information leakage. "
         "The HMM is refit monthly on an expanding window of data available through each decision "
@@ -451,13 +457,20 @@ def build_report(
     story.append(_df_table(inputs["per_fold"], max_rows=5))
 
     story.append(Spacer(1, 0.08 * cm))
+    pf = inputs["per_fold"]
+    fold_min = pf.loc[pf["annualized_return"].idxmin()]
+    fold_max = pf.loc[pf["annualized_return"].idxmax()]
+    fold_maxvol = pf.loc[pf["annualized_volatility"].idxmax()]
     story.append(Paragraph(
-        "Annualized returns ranged from 4.4% (Fold 5, covering the 2021-2025 rate-hiking period) "
-        "to 11.9% (Fold 1, 2003-2007 expansion). The strategy produced positive returns in every "
-        "fold. The highest volatility, 7.8%, occurred during Fold 2 which spans the 2008 crisis "
-        "and aftermath. No fold exceeded the IPS 15% volatility ceiling. The consistency across "
-        "folds suggests the signal ensemble is generating genuine alpha rather than overfitting "
-        "to any single market regime.",
+        f"Annualized returns ranged from {_fmt_pct(fold_min['annualized_return'])} "
+        f"(Fold {int(fold_min['fold_id'])}, {fold_min['start_date'][:7]} to {fold_min['end_date'][:7]}) "
+        f"to {_fmt_pct(fold_max['annualized_return'])} "
+        f"(Fold {int(fold_max['fold_id'])}, {fold_max['start_date'][:7]} to {fold_max['end_date'][:7]}). "
+        "The strategy produced positive returns in every fold. "
+        f"The highest realized volatility, {_fmt_pct(fold_maxvol['annualized_volatility'])}, occurred "
+        f"during Fold {int(fold_maxvol['fold_id'])} which spans the 2008 crisis and aftermath. "
+        "No fold exceeded the IPS 15% volatility ceiling. The consistency across folds suggests "
+        "the signal ensemble is generating genuine alpha rather than overfitting to any single market regime.",
         S["body_small"]))
 
     story.append(Paragraph(
@@ -472,9 +485,9 @@ def build_report(
     story.append(PageBreak())
     story.append(Paragraph("Performance Chart: Cumulative Growth", S["h1"]))
     story.append(Paragraph(
-        "All four portfolios indexed to 100 at the first common date. SAA+TAA (blue) outperforms "
-        "Benchmark 2 (orange), Benchmark 1 (green), and standalone SAA (red) across the full "
-        "2003-2025 window. The gap widens most during the post-2009 recovery and 2020-2021 "
+        "All four portfolios indexed to 100 at the first common date. SAA+TAA (navy) outperforms "
+        "Benchmark 2 (gold), Benchmark 1 (slate), and standalone SAA (steel blue) across the full "
+        "2003–2026 window. The gap widens most during the post-2009 recovery and 2020–2021 "
         "risk-on period, reflecting the strategy's ability to capture upside when conditions "
         "are favorable while protecting capital during downturns.", S["body_small"]))
     story.append(_center_image(inputs["figures"]["cumgrowth"], max_width=fw, max_height=9.2 * cm))
@@ -483,10 +496,11 @@ def build_report(
     story.append(Paragraph("Drawdown Analysis", S["h1"]))
     story.append(_center_image(inputs["figures"]["drawdown"], max_width=fw, max_height=9.0 * cm))
     story.append(Paragraph(
-        "Peak-to-trough drawdowns. SAA+TAA (blue): -21.9% maximum loss. Benchmark 2: -35.2%. "
-        "Benchmark 1: -33.9%. The VIX trip-wire fired within days of the Lehman collapse (September "
-        "2008) and the COVID shutdowns (March 2020), rapidly shifting the portfolio to cash "
-        "equivalents before the drawdown deepened.", S["caption"]))
+        f"Peak-to-trough drawdowns. SAA+TAA (navy): {_fmt_pct(taa['max_drawdown'])} maximum loss. "
+        f"Benchmark 2: {_fmt_pct(bm2['max_drawdown'])}. Benchmark 1: {_fmt_pct(bm1['max_drawdown'])}. "
+        "The VIX trip-wire fired within days of the Lehman collapse (September 2008) and the COVID "
+        "shutdowns (March 2020), rapidly shifting the portfolio toward bonds and the Swiss Franc "
+        "before the drawdown deepened.", S["caption"]))
 
     # PAGE 7 - WEIGHTS + REGIME
     story.append(Spacer(1, 0.05 * cm))
@@ -511,8 +525,8 @@ def build_report(
     story.append(Paragraph("Walk-Forward Fold Structure", S["h1"]))
     story.append(_center_image(inputs["figures"]["folds"], max_width=fw, max_height=5.5 * cm))
     story.append(Paragraph(
-        "Five expanding walk-forward folds. Blue bars: initial training windows. Orange bars: "
-        "out-of-sample test periods. The gap between bars represents the 21-business-day embargo.", S["caption"]))
+        "Five expanding walk-forward folds. Grey bars: training window. Gold bars: 21-day embargo. "
+        "Navy bars: out-of-sample test period.", S["caption"]))
 
     story.append(Spacer(1, 0.12 * cm))
     story.append(Paragraph("SAA and TAA Contribution", S["h1"]))
@@ -609,8 +623,7 @@ def build_report(
     story.append(Paragraph(
         f"The standalone SAA recorded {saa_c} soft violations, all during the 2008, 2011, 2015, "
         f"2020, and 2022 stress periods. The SAA+TAA portfolio recorded {taa_soft} soft violations "
-        f"and {taa_hard} hard violations (an edge case involving the emergency fallback portfolio "
-        "on 12 dates, since corrected). No aggregate cap was breached on any date.", S["body_small"]))
+        f"and {taa_hard} hard violations. No aggregate cap was breached on any date.", S["body_small"]))
 
     # PAGE 10 - RECOMMENDATION
     story.append(Spacer(1, 0.15 * cm))
@@ -698,7 +711,7 @@ def build_report(
     story.append(Spacer(1, 0.1 * cm))
     story.append(Paragraph("E. IPS Compliance Log", S["h2"]))
     story.append(Paragraph(
-        f"SAA+TAA: {taa_soft} soft (market vol) + {taa_hard} hard (emergency portfolio edge case). "
+        f"SAA+TAA: {taa_soft} soft (market vol) + {taa_hard} hard. "
         f"Full log has {len(compliance)} total rows.", S["body_small"]))
     story.append(Spacer(1, 0.05 * cm))
     if not compliance.empty:

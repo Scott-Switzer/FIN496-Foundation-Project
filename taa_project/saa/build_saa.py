@@ -61,7 +61,7 @@ from taa_project.data_loader import log_returns
 SAA_WEIGHTS_FILENAME = "saa_weights.csv"
 SAA_RETURNS_FILENAME = "saa_returns.csv"
 DEFAULT_START = "2000-01-01"
-DEFAULT_END = "2025-12-31"
+DEFAULT_END = "2026-04-15"
 LOOKBACK_DAYS = 756
 MIN_COV_OBSERVATIONS = 63
 DIAGONAL_FLOOR = 1e-6

@@ -323,7 +323,7 @@ def _history_start(start: str) -> str:
 
 def run_pipeline(
     start: str = "2003-01-01",
-    end: str = "2025-12-31",
+    end: str = "2026-04-15",
     folds: int = 5,
     vol_budget: float = TARGET_VOL,
     optimizer_mode: str = "vol",
@@ -578,7 +578,7 @@ def main() -> None:
 
     parser = argparse.ArgumentParser(description="Run the full Whitmore SAA/TAA pipeline.")
     parser.add_argument("--start", default="2003-01-01", help="First OOS date for the walk-forward backtest.")
-    parser.add_argument("--end", default="2025-12-31", help="Last date for the generated outputs.")
+    parser.add_argument("--end", default="2026-04-15", help="Last date for the generated outputs.")
     parser.add_argument("--folds", type=int, default=5, help="Number of contiguous OOS folds.")
     parser.add_argument(
         "--vol-budget",

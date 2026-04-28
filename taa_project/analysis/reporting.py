@@ -1709,6 +1709,16 @@ def _save_signal_history_figure(
     - Ex-post plotting only.
     """
 
+    if vix_signal.empty or "vix_z" not in vix_signal.columns:
+        empty_path = figure_dir / "fig09_signal_history.png"
+        import matplotlib.pyplot as plt
+        fig, ax = plt.subplots(figsize=(12, 2))
+        ax.text(0.5, 0.5, "VIX signal history data not available", ha="center", va="center")
+        ax.axis("off")
+        fig.savefig(empty_path, dpi=150, bbox_inches="tight")
+        plt.close(fig)
+        return empty_path
+
     _apply_whitmore_theme()
     regime_colors = {
         "risk_on": "#C6F6D5",
@@ -2258,11 +2268,15 @@ def build_reporting(
     )
     merged_trial_ledger.to_csv(TRIAL_LEDGER_CSV, index=False)
 
-    vix_signal_history = pd.read_csv(
-        output_dir / "vix_yield_curve_signal_history.csv",
-        index_col="as_of_date",
-        parse_dates=True,
-    )
+    vix_signal_path = output_dir / "vix_yield_curve_signal_history.csv"
+    if vix_signal_path.exists():
+        vix_signal_history = pd.read_csv(
+            vix_signal_path,
+            index_col="as_of_date",
+            parse_dates=True,
+        )
+    else:
+        vix_signal_history = pd.DataFrame()
     figures = {
         "cumgrowth": _save_cumgrowth_figure(panels, figure_dir),
         "drawdown": _save_drawdown_figure(panels, figure_dir),

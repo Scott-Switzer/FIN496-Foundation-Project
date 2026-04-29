@@ -628,7 +628,7 @@ def build_report(
         "the signal's weight in the final score. The optimizer then solves for new portfolio weights "
         "subject to all IPS constraints and the regime-based volatility budget.",
         S["body_small"]))
-    story.append(_center_image(inputs["figures"]["signal_pipeline"], max_width=fw, max_height=7.5 * cm))
+    story.append(_center_image(inputs["figures"]["signal_pipeline"], max_width=fw, max_height=6.0 * cm))
 
     # PAGE 5 - RISK BUDGETS + OPPORTUNISTIC + WALK-FORWARD
     story.append(Spacer(1, 0.15 * cm))
@@ -754,11 +754,11 @@ def build_report(
         "All four portfolios indexed to 100 at the first common date. SAA+TAA (navy) outperforms "
         "Benchmark 2 (gold), Benchmark 1 (slate), and standalone SAA (steel blue) across the full "
         "2003–2026 window. Grey bands mark major drawdown episodes.", S["body_small"]))
-    story.append(_center_image(inputs["figures"]["cumgrowth"], max_width=fw, max_height=7.2 * cm))
+    story.append(_center_image(inputs["figures"]["cumgrowth"], max_width=fw, max_height=6.0 * cm))
     story.append(Spacer(1, 0.05 * cm))
 
     story.append(Paragraph("Drawdown Analysis", S["h1"]))
-    story.append(_center_image(inputs["figures"]["drawdown"], max_width=fw, max_height=7.0 * cm))
+    story.append(_center_image(inputs["figures"]["drawdown"], max_width=fw, max_height=6.0 * cm))
     story.append(Paragraph(
         f"Peak-to-trough drawdowns. SAA+TAA (navy): {_fmt_pct(taa['max_drawdown'])} maximum loss. "
         f"Benchmark 2: {_fmt_pct(bm2['max_drawdown'])}. Benchmark 1: {_fmt_pct(bm1['max_drawdown'])}. "
@@ -766,7 +766,7 @@ def build_report(
 
     story.append(Spacer(1, 0.05 * cm))
     story.append(Paragraph("Rolling 12-Month Return Comparison", S["h1"]))
-    story.append(_center_image(inputs["figures"]["rolling_12m"], max_width=fw, max_height=7.0 * cm))
+    story.append(_center_image(inputs["figures"]["rolling_12m"], max_width=fw, max_height=6.0 * cm))
     story.append(Paragraph(
         "252-day rolling annualized returns demonstrate consistency of outperformance. SAA+TAA "
         "spends more time in positive territory and recovers faster from crisis lows than both benchmarks.",
@@ -775,7 +775,7 @@ def build_report(
     # PAGE 7 - WEIGHTS + REGIME
     story.append(Spacer(1, 0.05 * cm))
     story.append(Paragraph("TAA Weight Allocation Over Time", S["h1"]))
-    story.append(_center_image(inputs["figures"]["weights"], max_width=fw, max_height=8.0 * cm))
+    story.append(_center_image(inputs["figures"]["weights"], max_width=fw, max_height=6.5 * cm))
     story.append(Paragraph(
         "Monthly TAA target weights. Green and blue bands at the bottom: fixed-income (Treasuries, "
         "TIPS). Red and orange bands: equity and REIT exposure. During stress periods (visible "
@@ -784,7 +784,7 @@ def build_report(
 
     story.append(Spacer(1, 0.05 * cm))
     story.append(Paragraph("HMM Regime Detection", S["h1"]))
-    story.append(_center_image(inputs["figures"]["regime"], max_width=fw, max_height=8.0 * cm))
+    story.append(_center_image(inputs["figures"]["regime"], max_width=fw, max_height=6.5 * cm))
     story.append(Paragraph(
         "HMM regime shading: risk-on (green), neutral (yellow), stress (red). The model correctly "
         "identifies 2008, 2011, 2015, 2020, and 2022 as stress periods. Monthly refits mean the "
@@ -793,14 +793,14 @@ def build_report(
     # PAGE 8 - WALK-FORWARD FOLDS + ATTRIBUTION
     story.append(PageBreak())
     story.append(Paragraph("Walk-Forward Fold Structure", S["h1"]))
-    story.append(_center_image(inputs["figures"]["folds"], max_width=fw, max_height=5.0 * cm))
+    story.append(_center_image(inputs["figures"]["folds"], max_width=fw, max_height=4.0 * cm))
     story.append(Paragraph(
         "Five expanding walk-forward folds. Grey bars: training window. Gold bars: 21-day embargo. "
         "Navy bars: out-of-sample test period.", S["caption"]))
 
     story.append(Spacer(1, 0.08 * cm))
     story.append(Paragraph("Per-Fold Sharpe Comparison", S["h2"]))
-    story.append(_center_image(inputs["figures"]["per_fold"], max_width=fw, max_height=5.5 * cm))
+    story.append(_center_image(inputs["figures"]["per_fold"], max_width=fw, max_height=4.5 * cm))
     story.append(Paragraph(
         "Grouped Sharpe ratios by fold show SAA+TAA outperforming both benchmarks in every fold except "
         "Fold 2 (GFC), where all portfolios suffered but SAA+TAA still preserved relative capital.",
@@ -887,7 +887,7 @@ def build_report(
 
     story.append(Spacer(1, 0.12 * cm))
     story.append(Paragraph("Signal Attribution (Leave-One-Out OOS Reruns)", S["h1"]))
-    story.append(_center_image(inputs["figures"]["attribution"], max_width=14.8 * cm, max_height=8.0 * cm))
+    story.append(_center_image(inputs["figures"]["attribution"], max_width=14.8 * cm, max_height=6.5 * cm))
     story.append(Paragraph(
         "Each bar shows the change in out-of-sample Sharpe when one signal is removed and the "
         "remaining four signals are retrained and retested from scratch. This is not a regression "
@@ -985,32 +985,6 @@ def build_report(
         "rate environment.",
         S["body_small"]))
 
-    story.append(Spacer(1, 0.1 * cm))
-    story.append(Paragraph("When the TAA overlay works and when it does not:", S["h2"]))
-    story.append(Paragraph(
-        "The overlay adds the most value during market crises. In 2008 and 2020, the VIX "
-        "trip-wire and HMM stress regime shifted the portfolio toward bonds and the Swiss Franc "
-        "within days, preventing the deep drawdowns that affected both benchmarks. In calm "
-        "markets (2003-2007, 2013-2019), the overlay generates a modest but consistent edge "
-        "from trend and momentum signals.",
-        S["body"]))
-    story.append(Paragraph(
-        "The overlay will underperform during sharp reversals that occur too quickly for any "
-        "signal to respond (e.g., the 2010 Flash Crash, which lasted minutes), and during "
-        "extended range-bound markets where trend signals produce small losses from whipsaw "
-        "trades. It is not designed to time the market on an intraday basis. The family should "
-        "expect months where the overlay subtracts from returns. Over the full cycle, however, "
-        "the 1.86% annual excess return over SAA is statistically significant.",
-        S["body_small"]))
-
-    story.append(Spacer(1, 0.08 * cm))
-    story.append(Paragraph(
-        f"The strategy's Deflated Sharpe Ratio of {dsr['baseline_dsr']:.3f} across {disclosed} "
-        "disclosed trial configurations indicates that the observed risk-adjusted return is unlikely "
-        "to be the result of data mining or selection bias. Values above 0.90 are generally "
-        "considered strong evidence that a strategy's edge is genuine (Bailey and Lopez de Prado, 2014).",
-        S["body_small"]))
-
     story.append(Paragraph(
         "We want to be direct about risk. The strategy will lose money in some months. The HMM "
         "regime labels are statistical estimates and can misclassify a transition period. The "
@@ -1018,66 +992,6 @@ def build_report(
         "$390 million on the current $1.8 billion asset base. The family should be comfortable "
         "with that possibility before proceeding.",
         S["body_small"]))
-
-    # PAGE 12 - APPENDIX (trimmed to fit 12-page limit)
-    story.append(PageBreak())
-    story.append(Paragraph("Appendix", S["h1"]))
-
-    story.append(Paragraph("A. SAA Method Comparison", S["h2"]))
-    story.append(Spacer(1, 0.05 * cm))
-    saa_disp = _fmt_display_df(
-        inputs["saa_methods"].assign(method=inputs["saa_methods"]["method"].map(
-            lambda m: METHOD_NAMES.get(m, m))),
-        col_map={"method": "Method", "annualized_return": "Return p.a.",
-                 "annualized_volatility": "Vol p.a.", "max_drawdown": "Max DD",
-                 "sharpe": "Sharpe", "sortino": "Sortino", "calmar": "Calmar",
-                 "turnover_pa": "Turnover"},
-        pct_cols=["annualized_return", "annualized_volatility", "max_drawdown"],
-        float2_cols=["sharpe", "sortino", "calmar", "turnover_pa"],
-        select=["method", "annualized_return", "annualized_volatility", "max_drawdown",
-                "sharpe", "sortino", "calmar", "turnover_pa"],
-    )
-    story.append(_df_table(saa_disp, max_rows=6, font_size=7, first_col_ratio=2.0))
-
-    story.append(Spacer(1, 0.08 * cm))
-    story.append(Paragraph("B. Per-Fold OOS Metrics", S["h2"]))
-    story.append(Spacer(1, 0.05 * cm))
-    fold_disp = _fmt_display_df(
-        inputs["per_fold"],
-        col_map={"fold_id": "Fold", "start_date": "Start", "end_date": "End",
-                 "annualized_return": "Return p.a.", "annualized_volatility": "Vol p.a.",
-                 "sharpe": "Sharpe", "sortino": "Sortino", "max_drawdown": "Max DD"},
-        pct_cols=["annualized_return", "annualized_volatility", "max_drawdown"],
-        float2_cols=["sharpe", "sortino"],
-        select=["fold_id", "start_date", "end_date", "annualized_return",
-                "annualized_volatility", "sharpe", "sortino", "max_drawdown"],
-    )
-    story.append(_df_table(fold_disp, max_rows=5, font_size=7, first_col_ratio=1.5))
-
-    story.append(Spacer(1, 0.08 * cm))
-    story.append(Paragraph("C. Signal Attribution (Leave-One-Out)", S["h2"]))
-    story.append(Spacer(1, 0.05 * cm))
-    sig_disp = _fmt_display_df(
-        inputs["attribution_signal"],
-        col_map={"layer": "Signal", "baseline_sharpe": "Baseline Sharpe",
-                 "ablated_sharpe": "Ablated Sharpe", "marginal_oos_sharpe": "ΔSharpe",
-                 "baseline_ann_return": "Baseline Return", "ablated_ann_return": "Ablated Return",
-                 "ann_return_delta": "ΔReturn"},
-        pct_cols=["baseline_ann_return", "ablated_ann_return", "ann_return_delta"],
-        float2_cols=["baseline_sharpe", "ablated_sharpe", "marginal_oos_sharpe"],
-        select=["layer", "baseline_sharpe", "ablated_sharpe", "marginal_oos_sharpe",
-                "baseline_ann_return", "ablated_ann_return", "ann_return_delta"],
-    )
-    story.append(_df_table(sig_disp, max_rows=10, font_size=7))
-
-    story.append(Spacer(1, 0.08 * cm))
-    story.append(Paragraph("D. TAA State Machine (Trigger / Entry / Hold / Exit)", S["h2"]))
-    story.append(Paragraph(
-        "The state-machine view shows explicit triggers, entry mechanics, holding-period drift, "
-        "and implicit exit via next-month re-optimization. The March 2020 path is annotated with "
-        "real backtest weights and regime probabilities.",
-        S["body_small"]))
-    story.append(_center_image(inputs["figures"]["state_machine"], max_width=fw, max_height=7.5 * cm))
 
     # BUILD
     # body_frame: top sits at PAGE_H - 2.0 cm, giving 0.55 cm clearance below the

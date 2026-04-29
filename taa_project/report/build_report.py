@@ -165,6 +165,9 @@ def _load_inputs(output_dir: Path, figure_dir: Path) -> dict:
             "folds": figure_dir / "fig06_oos_folds.png",
             "per_fold": figure_dir / "fig08_per_fold_oos.png",
             "attribution": figure_dir / "fig07_attribution_bar.png",
+            "signal_pipeline": figure_dir / "fig21_signal_pipeline_swimlane.png",
+            "monthly_cycle": figure_dir / "fig22_monthly_cycle_flow.png",
+            "state_machine": figure_dir / "fig23_state_machine.png",
         },
     }
 
@@ -478,6 +481,17 @@ def build_report(
         "floor. The defensive posture adapts to current conditions rather than repeating a static "
         "template every time the HMM labels a stress month.",
         S["body_small"]))
+
+    story.append(Spacer(1, 0.12 * cm))
+    story.append(Paragraph("Signal Pipeline Architecture", S["h2"]))
+    story.append(Paragraph(
+        "Figure 21 shows how the five independent signals are computed in parallel, blended into a "
+        "single expected-return vector, and passed to the optimizer each month. Each swimlane "
+        "represents one signal layer; the width of the arrow into the ensemble blender reflects "
+        "the signal's weight in the final score. The optimizer then solves for new portfolio weights "
+        "subject to all IPS constraints and the regime-based volatility budget.",
+        S["body_small"]))
+    story.append(_center_image(inputs["figures"]["signal_pipeline"], max_width=fw, max_height=7.5 * cm))
 
     # PAGE 5 - RISK BUDGETS + OPPORTUNISTIC + WALK-FORWARD
     story.append(Spacer(1, 0.15 * cm))
@@ -874,6 +888,15 @@ def build_report(
     story.append(Paragraph("C. Signal-Layer Attribution (Full Table)", S["h2"]))
     story.append(Spacer(1, 0.05 * cm))
     story.append(_df_table(inputs["attribution_signal"], max_rows=10, font_size=6.5))
+
+    story.append(Spacer(1, 0.08 * cm))
+    story.append(Paragraph("D. TAA State Machine (Trigger / Entry / Hold / Exit)", S["h2"]))
+    story.append(Paragraph(
+        "The state-machine view shows explicit triggers, entry mechanics, holding-period drift, "
+        "and implicit exit via next-month re-optimization. The March 2020 path is annotated with "
+        "real backtest weights and regime probabilities.",
+        S["body_small"]))
+    story.append(_center_image(inputs["figures"]["state_machine"], max_width=fw, max_height=7.5 * cm))
 
     # BUILD
     body_frame = Frame(1.4 * cm, 1.5 * cm, PAGE_W - 2.8 * cm, PAGE_H - 2.5 * cm, id="body_frame")

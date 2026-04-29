@@ -146,6 +146,9 @@ FIGURE_FILENAMES = {
     "annual_costs": "fig16_annual_costs.png",
     "correlation_heatmap": "fig17_correlation_heatmap.png",
     "cumulative_alpha": "fig18_cumulative_alpha.png",
+    "signal_pipeline": "fig21_signal_pipeline_swimlane.png",
+    "monthly_cycle": "fig22_monthly_cycle_flow.png",
+    "state_machine": "fig23_state_machine.png",
 }
 
 LEGACY_SAA_METHODS = (
@@ -2158,6 +2161,284 @@ def _save_risk_return_scatter_figure(metrics: pd.DataFrame, figure_dir: Path) ->
     return path
 
 
+def _save_signal_pipeline_swimlane_figure(figure_dir: Path) -> Path:
+    """Multi-swimlane signal architecture diagram (landscape, main body).
+
+    Point-in-time safety:
+    - Ex-post diagram only.
+    """
+
+    from matplotlib.patches import FancyBboxPatch, FancyArrowPatch
+
+    _apply_whitmore_theme()
+    fig, ax = plt.subplots(figsize=(14.0, 8.0))
+    ax.set_xlim(0, 14)
+    ax.set_ylim(0, 10)
+    ax.axis("off")
+
+    # Swimlane definitions: (y_bottom, height, label, color)
+    swimlanes = [
+        (8.0, 1.6, "Regime HMM (20%)", "#1f3f6e"),
+        (6.2, 1.6, "Faber Trend (25%)", "#c9a227"),
+        (4.4, 1.6, "ADM Momentum (25%)", "#4a90d9"),
+        (2.6, 1.6, "VIX Trip-Wire (10%)", "#6b7280"),
+        (0.8, 1.6, "Macro Factor (15%)", "#059669"),
+    ]
+
+    for y, h, label, color in swimlanes:
+        ax.axhspan(y, y + h, color=color, alpha=0.08, zorder=0)
+        ax.text(0.15, y + h / 2, label, fontsize=9, fontweight="bold",
+                color=color, va="center", ha="left")
+
+    # Box helper
+    def _box(x, y, w, h, text, color, fontsize=7.5, text_color="white"):
+        patch = FancyBboxPatch((x, y), w, h, boxstyle="round,pad=0.02,rounding_size=0.08",
+                                facecolor=color, edgecolor="white", linewidth=1.2, zorder=3)
+        ax.add_patch(patch)
+        ax.text(x + w / 2, y + h / 2, text, fontsize=fontsize, color=text_color,
+                ha="center", va="center", fontweight="bold", wrap=True, zorder=4)
+
+    # Arrow helper
+    def _arrow(x1, y1, x2, y2, color="#4A5568"):
+        ax.annotate("", xy=(x2, y2), xytext=(x1, y1),
+                    arrowprops=dict(arrowstyle="->", color=color, lw=1.4), zorder=2)
+
+    # Signal boxes
+    signal_boxes = [
+        (2.2, 8.35, 1.6, 0.9, "VIX, HY\nSpreads,\nCurve, NFCI", "#1f3f6e"),
+        (2.2, 6.55, 1.6, 0.9, "Price vs\n120-day\nSMA", "#c9a227"),
+        (2.2, 4.75, 1.6, 0.9, "1/2/3/6-mo\nReturns\nRanked", "#4a90d9"),
+        (2.2, 2.95, 1.6, 0.9, "VIX z-score\n+ Curve\nPenalty", "#6b7280"),
+        (2.2, 1.15, 1.6, 0.9, "Real Yield\nCredit\nBTC Momo", "#059669"),
+    ]
+    for x, y, w, h, text, color in signal_boxes:
+        _box(x, y, w, h, text, color)
+
+    # Compute boxes
+    compute_boxes = [
+        (4.4, 8.35, 1.5, 0.9, "3-State\nHMM", "#2D3748"),
+        (4.4, 6.55, 1.5, 0.9, "tanh\nSmooth", "#2D3748"),
+        (4.4, 4.75, 1.5, 0.9, "X-Sectional\nRank", "#2D3748"),
+        (4.4, 2.95, 1.5, 0.9, "Risk\nScore", "#2D3748"),
+        (4.4, 1.15, 1.5, 0.9, "Z-Score ×\nLoading", "#2D3748"),
+    ]
+    for x, y, w, h, text, color in compute_boxes:
+        _box(x, y, w, h, text, color)
+
+    # Output vectors
+    output_boxes = [
+        (6.5, 8.35, 1.3, 0.9, "[-1,+1]\nTilt", "#1f3f6e"),
+        (6.5, 6.55, 1.3, 0.9, "[-1,+1]\nScore", "#c9a227"),
+        (6.5, 4.75, 1.3, 0.9, "[-1,+1]\nRank", "#4a90d9"),
+        (6.5, 2.95, 1.3, 0.9, "[-1,+1]\nTilt", "#6b7280"),
+        (6.5, 1.15, 1.3, 0.9, "[-1,+1]\nMu", "#059669"),
+    ]
+    for x, y, w, h, text, color in output_boxes:
+        _box(x, y, w, h, text, color)
+
+    # Arrows within each lane
+    for y_base in [8.8, 7.0, 5.2, 3.4, 1.6]:
+        _arrow(3.8, y_base, 4.4, y_base)
+        _arrow(5.9, y_base, 6.5, y_base)
+
+    # Ensemble blender
+    _box(8.3, 4.0, 1.8, 2.0, "ENSEMBLE\nBLENDER\n(weighted sum)", "#1A365D", fontsize=9)
+    for y_base in [8.8, 7.0, 5.2, 3.4, 1.6]:
+        _arrow(7.8, y_base, 8.3, 5.0)
+
+    # Scale / Weights annotation
+    ax.text(9.2, 6.8, "20%\n×0.10", fontsize=7, color="#1f3f6e", fontweight="bold", ha="left")
+    ax.text(9.2, 6.0, "25%\n×0.06", fontsize=7, color="#c9a227", fontweight="bold", ha="left")
+    ax.text(9.2, 5.2, "25%\n×0.06", fontsize=7, color="#4a90d9", fontweight="bold", ha="left")
+    ax.text(9.2, 4.4, "10%\n×1.0", fontsize=7, color="#6b7280", fontweight="bold", ha="left")
+    ax.text(9.2, 3.6, "15%\n×0.20", fontsize=7, color="#059669", fontweight="bold", ha="left")
+
+    # Optimizer
+    _box(10.2, 4.2, 1.8, 1.6, "cvxpy\nOptimizer\n(max μ'w − λw'Σw\n− cost|Δw|)", "#2D3748", fontsize=8)
+    _arrow(10.1, 5.0, 10.2, 5.0)
+
+    # Constraints annotation
+    ax.text(10.3, 3.9, "Subject to: IPS bands, sleeve caps,\nvol budget (8/12/14%), no shorts",
+            fontsize=6.5, color="#4A5568", ha="left", va="top")
+
+    # Output
+    _box(12.4, 4.4, 1.3, 1.2, "NEW\nPORTFOLIO\nWEIGHTS", "#1A365D", fontsize=9)
+    _arrow(12.0, 5.0, 12.4, 5.0)
+
+    # Hold period
+    _box(12.4, 2.2, 1.3, 0.9, "HOLD\n1 MONTH\n(drift)", "#718096", fontsize=8)
+    _arrow(13.05, 4.4, 13.05, 3.1)
+
+    # Loop back
+    ax.annotate("", xy=(1.0, 2.65), xytext=(13.05, 2.65),
+                arrowprops=dict(arrowstyle="->", color="#A0AEC0", lw=1.0,
+                                connectionstyle="arc3,rad=-0.3"), zorder=1)
+    ax.text(7.0, 1.4, "Next month-end rebalance", fontsize=7.5, color="#A0AEC0",
+            ha="center", fontstyle="italic")
+
+    ax.set_title("TAA Signal Pipeline  ·  Five Independent Signals → Ensemble → Optimizer",
+                 fontsize=12, fontweight="bold", color="#1A365D", loc="left", pad=15)
+    fig.tight_layout()
+    path = figure_dir / FIGURE_FILENAMES["signal_pipeline"]
+    fig.savefig(path, dpi=220, bbox_inches="tight")
+    plt.close(fig)
+    return path
+
+
+def _save_monthly_cycle_flow_figure(figure_dir: Path) -> Path:
+    """Simple vertical monthly-cycle flowchart (appendix reference).
+
+    Point-in-time safety:
+    - Ex-post diagram only.
+    """
+
+    from matplotlib.patches import FancyBboxPatch
+
+    _apply_whitmore_theme()
+    fig, ax = plt.subplots(figsize=(8.0, 10.0))
+    ax.set_xlim(0, 8)
+    ax.set_ylim(0, 10)
+    ax.axis("off")
+
+    def _box(x, y, w, h, text, color, fontsize=8.5):
+        patch = FancyBboxPatch((x, y), w, h, boxstyle="round,pad=0.02,rounding_size=0.1",
+                                facecolor=color, edgecolor="white", linewidth=1.5, zorder=3)
+        ax.add_patch(patch)
+        ax.text(x + w / 2, y + h / 2, text, fontsize=fontsize, color="white",
+                ha="center", va="center", fontweight="bold", wrap=True, zorder=4)
+
+    def _arrow(x1, y1, x2, y2, color="#4A5568"):
+        ax.annotate("", xy=(x2, y2), xytext=(x1, y1),
+                    arrowprops=dict(arrowstyle="->", color=color, lw=1.6), zorder=2)
+
+    boxes = [
+        (2.0, 8.5, 4.0, 0.9, "1. MONTH-END TRIGGER\nLast trading day of month", "#1f3f6e"),
+        (2.0, 7.0, 4.0, 0.9, "2. SIGNAL BUNDLE\nCompute 5 signals from PIT data", "#c9a227"),
+        (2.0, 5.5, 4.0, 0.9, "3. ENSEMBLE SCORE\nWeighted sum → expected-return vector", "#4a90d9"),
+        (2.0, 4.0, 4.0, 0.9, "4. OPTIMIZER SOLVE\ncvxpy: max return − risk − cost", "#059669"),
+        (2.0, 2.5, 4.0, 0.9, "5. HOLD / DRIFT\nPositions drift with market returns", "#6b7280"),
+        (2.0, 1.0, 4.0, 0.9, "6. NEXT MONTH-END\nRe-evaluate all signals", "#1f3f6e"),
+    ]
+    for x, y, w, h, text, color in boxes:
+        _box(x, y, w, h, text, color)
+
+    for i in range(len(boxes) - 1):
+        y_top = boxes[i][1]
+        y_bottom = boxes[i + 1][1] + boxes[i + 1][3]
+        _arrow(4.0, y_top, 4.0, y_bottom)
+
+    # Guardrail side branch
+    ax.annotate("", xy=(2.0, 3.8), xytext=(1.2, 3.8),
+                arrowprops=dict(arrowstyle="->", color="#C53030", lw=1.2), zorder=2)
+    ax.text(0.2, 3.8, "Guardrail:\nDD < -15%\n→ tighten\nvol 50%", fontsize=7,
+            color="#C53030", ha="left", va="center", fontweight="bold")
+
+    # Daily risk governor side branch
+    ax.annotate("", xy=(2.0, 2.3), xytext=(1.2, 2.3),
+                arrowprops=dict(arrowstyle="->", color="#C53030", lw=1.2), zorder=2)
+    ax.text(0.2, 2.3, "Daily Gov:\n21d vol > 12%\n→ emergency\nrebalance", fontsize=7,
+            color="#C53030", ha="left", va="center", fontweight="bold")
+
+    ax.set_title("Monthly TAA Cycle  ·  Trigger → Signal → Optimize → Hold → Repeat",
+                 fontsize=11.5, fontweight="bold", color="#1A365D", loc="left", pad=12)
+    fig.tight_layout()
+    path = figure_dir / FIGURE_FILENAMES["monthly_cycle"]
+    fig.savefig(path, dpi=220, bbox_inches="tight")
+    plt.close(fig)
+    return path
+
+
+def _save_state_machine_figure(figure_dir: Path) -> Path:
+    """State-machine diagram with March 2020 real-data annotation (appendix).
+
+    Point-in-time safety:
+    - Ex-post diagram only.
+    """
+
+    from matplotlib.patches import FancyBboxPatch, FancyArrowPatch
+
+    _apply_whitmore_theme()
+    fig, ax = plt.subplots(figsize=(13.0, 9.0))
+    ax.set_xlim(0, 13)
+    ax.set_ylim(0, 9)
+    ax.axis("off")
+
+    def _state(x, y, w, h, text, color, fontsize=8.5):
+        patch = FancyBboxPatch((x, y), w, h, boxstyle="round,pad=0.03,rounding_size=0.2",
+                                facecolor=color, edgecolor="white", linewidth=2.0, zorder=3)
+        ax.add_patch(patch)
+        ax.text(x + w / 2, y + h / 2, text, fontsize=fontsize, color="white",
+                ha="center", va="center", fontweight="bold", wrap=True, zorder=4)
+
+    def _transition(x1, y1, x2, y2, label, color="#4A5568", curved=False):
+        style = "arc3,rad=0.2" if curved else "arc3,rad=0"
+        ax.annotate("", xy=(x2, y2), xytext=(x1, y1),
+                    arrowprops=dict(arrowstyle="->", color=color, lw=1.6,
+                                    connectionstyle=style), zorder=2)
+        mid_x, mid_y = (x1 + x2) / 2, (y1 + y2) / 2
+        ax.text(mid_x, mid_y + 0.15, label, fontsize=7, color=color,
+                ha="center", va="bottom", fontweight="bold")
+
+    # States
+    _state(1.0, 6.5, 2.5, 1.2, "STATE A\nHolding SAA+TAA\nWeights", "#1f3f6e")
+    _state(5.0, 6.5, 2.5, 1.2, "STATE B\nSignal Computation\n(Month-End)", "#c9a227")
+    _state(9.0, 6.5, 2.5, 1.2, "STATE C\nOptimizer Rebalance\n(Entry)", "#059669")
+    _state(5.0, 3.0, 2.5, 1.2, "STATE D\nPost-Rebalance Hold\n(1-Month Drift)", "#6b7280")
+
+    # Normal loop transitions
+    _transition(3.5, 7.1, 5.0, 7.1, "Month-end\narrives")
+    _transition(7.5, 7.1, 9.0, 7.1, "signal_score\ncomputed")
+    _transition(10.25, 6.5, 6.25, 4.2, "new weights\nexecuted", curved=True)
+    _transition(5.0, 3.6, 2.25, 6.5, "Next month\n(drift)", curved=True)
+
+    # Guardrail emergency transition
+    ax.annotate("", xy=(5.0, 7.7), xytext=(3.5, 8.5),
+                arrowprops=dict(arrowstyle="->", color="#C53030", lw=1.4,
+                                connectionstyle="arc3,rad=-0.2"), zorder=2)
+    ax.text(3.8, 8.6, "GUARDRAIL:\nTrailing DD < -15%", fontsize=7, color="#C53030",
+            fontweight="bold", ha="center")
+    ax.annotate("", xy=(9.0, 7.7), xytext=(6.8, 8.5),
+                arrowprops=dict(arrowstyle="->", color="#C53030", lw=1.4,
+                                connectionstyle="arc3,rad=0.2"), zorder=2)
+    ax.text(8.0, 8.6, "→ Tighten vol\nbudget 50%", fontsize=7, color="#C53030",
+            fontweight="bold", ha="center")
+
+    # Daily risk governor
+    ax.annotate("", xy=(6.25, 3.0), xytext=(7.5, 2.0),
+                arrowprops=dict(arrowstyle="->", color="#DD6B20", lw=1.4,
+                                connectionstyle="arc3,rad=0.2"), zorder=2)
+    ax.text(8.2, 1.7, "DAILY GOVERNOR:\n21d vol > 12% or\nDD < -3%\n→ Emergency rebalance",
+            fontsize=7, color="#DD6B20", fontweight="bold", ha="center")
+    ax.annotate("", xy=(9.0, 6.5), xytext=(8.5, 2.5),
+                arrowprops=dict(arrowstyle="->", color="#DD6B20", lw=1.4,
+                                connectionstyle="arc3,rad=-0.3"), zorder=2)
+
+    # March 2020 annotation box
+    ax.add_patch(FancyBboxPatch((0.3, 0.2), 5.8, 1.8, boxstyle="round,pad=0.03,rounding_size=0.1",
+                                 facecolor="#FED7D7", edgecolor="#C53030", linewidth=1.5, zorder=3))
+    ax.text(3.2, 1.5, "MARCH 2020 EXAMPLE (REAL BACKTEST DATA)", fontsize=8.5,
+            color="#C53030", fontweight="bold", ha="center", va="top")
+    ax.text(3.2, 1.05, "Feb 28: Neutral regime → SPXT 20% (cut from 29.1%)\n"
+            "Mar 31: Stress regime (P=1.00) → SPXT 20%, LBUSTRUU 30.3%, XAU 29.6%\n"
+            "Apr 30: Still stress → SPXT 20%, BROAD_TIPS 25.0% (flight to quality)",
+            fontsize=7, color="#2D3748", ha="center", va="top", linespacing=1.4)
+
+    # Exit annotation
+    ax.text(10.5, 2.5, "EXIT = IMPLICIT:\nNo individual position exits.\n"
+            "Next month-end recomputes\nall signals and re-optimizes.\n"
+            "If gold signal flips negative,\noptimizer reduces gold.",
+            fontsize=7, color="#4A5568", ha="center", va="top", linespacing=1.4,
+            bbox=dict(boxstyle="round,pad=0.3", facecolor="#F7FAFC", edgecolor="#CBD5E0"))
+
+    ax.set_title("TAA State Machine  ·  Trigger → Entry → Hold → Exit (Implicit) → Repeat",
+                 fontsize=12, fontweight="bold", color="#1A365D", loc="left", pad=15)
+    fig.tight_layout()
+    path = figure_dir / FIGURE_FILENAMES["state_machine"]
+    fig.savefig(path, dpi=220, bbox_inches="tight")
+    plt.close(fig)
+    return path
+
+
 def _save_monthly_heatmap_figure(panels: dict[str, object], figure_dir: Path) -> Path:
     """Calendar heatmap of monthly returns for SAA+TAA."""
 
@@ -2494,6 +2775,9 @@ def build_reporting(
         "annual_costs": _save_annual_costs_figure(outputs["oos_returns"], figure_dir),
         "correlation_heatmap": _save_correlation_heatmap_figure(figure_dir, output_dir),
         "cumulative_alpha": _save_cumulative_alpha_figure(panels, figure_dir),
+        "signal_pipeline": _save_signal_pipeline_swimlane_figure(figure_dir),
+        "monthly_cycle": _save_monthly_cycle_flow_figure(figure_dir),
+        "state_machine": _save_state_machine_figure(figure_dir),
     }
     print("[reporting] Figures saved to", figure_dir)
 

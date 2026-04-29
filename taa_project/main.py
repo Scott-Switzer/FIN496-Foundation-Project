@@ -1,3 +1,14 @@
+# REQUIREMENTS
+#   pandas>=1.5
+#   numpy>=1.23
+#   scipy>=1.9
+#   cvxpy>=1.3
+#   hmmlearn>=0.3
+#   matplotlib>=3.6
+#   reportlab>=3.6
+#   python-pptx>=0.6
+#   fredapi (optional; manual CSV fallback supported)
+#
 # Addresses the reproducibility requirement and Tasks 12-13 by providing a
 # single deterministic entrypoint for the full Whitmore pipeline.
 """Whitmore end-to-end pipeline orchestrator.
@@ -60,6 +71,18 @@ from taa_project.optimizer.nested_risk import NestedRiskConfig
 from taa_project.report.build_pptx import build_pptx as build_deck
 from taa_project.report.build_report import build_report
 from taa_project.saa.build_saa import build_saa_portfolio
+
+# ---------------------------------------------------------------------------
+# External data files used by this pipeline
+# ---------------------------------------------------------------------------
+# Core asset prices:      data/asset_data/whitmore_daily.csv
+# Asset metadata:         data/asset_data/data_key.csv
+# Master FRED panel:      data/consolidated_csvs/fred/master/fred_data.csv
+#   (contains VIXCLS, BAMLH0A0HYM2, T10Y3M, NFCI, DFII10 among others)
+# Raw FRED fallbacks:     data/consolidated_csvs/fred/raw/
+#   macro_VIX.csv, credit_ICE_BofA_HY_OAS.csv, rates_YieldCurve_10Y_minus_3M_Spread.csv,
+#   macro_NFCI.csv, rates_10Y_TIPS_Real_Yield.csv
+# BTC price is sourced from the master asset price panel (whitmore_daily.csv).
 RUN_TRIAL_LEDGER_COLUMNS = [
     "trial_id",
     "timestamp_utc",
@@ -428,6 +451,20 @@ def run_pipeline(
     history_start = _history_start(start)
     breaches_log = output_dir / "breaches.log"
     breaches_log.write_text("", encoding="utf-8")
+
+    # 3.2 — assert external data files exist
+    from taa_project.config import PRICES_CSV, ASSET_KEY_CSV, FRED_CSV
+    required_files = {
+        "Asset prices (whitmore_daily.csv)": PRICES_CSV,
+        "Asset metadata (data_key.csv)": ASSET_KEY_CSV,
+        "Master FRED panel (fred_data.csv)": FRED_CSV,
+    }
+    for desc, fpath in required_files.items():
+        if not fpath.exists():
+            raise FileNotFoundError(
+                f"Required data file missing: {desc} -> {fpath}\n"
+                "Please ensure all external data files are present before running the pipeline."
+            )
 
     log_step("Task 1: data audit")
     audit_artifacts = run_data_audit(output_dir=output_dir)

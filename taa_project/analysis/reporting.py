@@ -1152,10 +1152,10 @@ def refresh_dsr_disclosure(
 
 
 _PORTFOLIO_COLORS = {
-    "SAA+TAA": "#1A365D",
-    "BM2":     "#B8860B",
-    "SAA":     "#2E86AB",
-    "BM1":     "#8D99AE",
+    "SAA+TAA": "#1f3f6e",  # navy — colorblind-friendly
+    "BM2":     "#c9a227",  # gold
+    "SAA":     "#4a90d9",  # steel blue
+    "BM1":     "#6b7280",  # slate grey
 }
 
 _PORTFOLIO_ORDER = ["SAA+TAA", "BM2", "SAA", "BM1"]
@@ -1276,7 +1276,7 @@ def _save_cumgrowth_figure(panels: dict[str, object], figure_dir: Path) -> Path:
 
     _apply_whitmore_theme()
     common_start = _common_plot_window(panels)
-    fig, ax = plt.subplots(figsize=(11.0, 5.8))
+    fig, ax = plt.subplots(figsize=(11.0, 6.2))
 
     ordered_labels = [lbl for lbl in _PORTFOLIO_ORDER if lbl in panels["returns"]]
     other_labels = [lbl for lbl in panels["returns"] if lbl not in ordered_labels]
@@ -1293,7 +1293,36 @@ def _save_cumgrowth_figure(panels: dict[str, object], figure_dir: Path) -> Path:
                             where=(growth.values >= 100),
                             color=color, alpha=0.07, zorder=1)
 
-    _style_ax(ax, ylabel="Index (100 = start)", title="Cumulative Growth  ·  Index 100", index_y=True)
+    # 2.1a — major drawdown shaded bands
+    crises = [
+        (pd.Timestamp("2002-01-01"), pd.Timestamp("2003-12-31"), "Dot-com recovery"),
+        (pd.Timestamp("2008-09-01"), pd.Timestamp("2009-03-31"), "GFC"),
+        (pd.Timestamp("2020-02-01"), pd.Timestamp("2020-03-31"), "COVID crash"),
+        (pd.Timestamp("2022-01-01"), pd.Timestamp("2022-12-31"), "2022 rate shock"),
+    ]
+    for start, end, label in crises:
+        ax.axvspan(start, end, color="#9CA3AF", alpha=0.18, zorder=0)
+        mid = start + (end - start) / 2
+        ax.text(mid, ax.get_ylim()[1] * 0.98, label, ha="center", va="top",
+                fontsize=7.5, color="#4B5563", fontweight="bold", zorder=5)
+
+    # 2.1b — final value annotations
+    for label in ordered_labels + other_labels:
+        returns = panels["returns"][label]
+        growth = cumulative_growth_index(returns.loc[common_start:])
+        if not growth.empty:
+            final_val = growth.iloc[-1]
+            ax.annotate(f"{label}: {final_val:.0f}",
+                        xy=(growth.index[-1], final_val),
+                        xytext=(8, 0), textcoords="offset points",
+                        fontsize=8, color=_PORTFOLIO_COLORS.get(label, "#718096"),
+                        fontweight="bold", va="center", zorder=6)
+
+    # 2.1d — title, subtitle, source
+    ax.set_title("Cumulative Growth  ·  All Portfolios Indexed to 100", loc="left", pad=12)
+    ax.text(0.0, -0.12, "Net of 5 bps round-trip transaction costs. Walk-forward OOS, Jan 2003 – Apr 2026.",
+            transform=ax.transAxes, fontsize=7.5, color="#718096", ha="left")
+    _style_ax(ax, ylabel="Index (100 = start)", index_y=True)
     ax.axhline(100, color="#CBD5E0", linewidth=0.8, linestyle="-", zorder=0)
     ax.legend(loc="upper left")
     fig.tight_layout()
@@ -1336,13 +1365,78 @@ def _save_drawdown_figure(panels: dict[str, object], figure_dir: Path) -> Path:
         if label == "SAA+TAA":
             ax.fill_between(dd.index, dd.values, 0, color=color, alpha=0.08, zorder=1)
 
-    ax.axhline(-MAX_DD, color="#C53030", linewidth=1.0, linestyle="--", zorder=2,
+    # 2.2a — horizontal dashed red line at -25%
+    ax.axhline(-MAX_DD, color="#C53030", linewidth=1.2, linestyle="--", zorder=2,
                label=f"IPS MDD limit ({100 * MAX_DD:.0f}%)")
+    # 2.2b — shade area below -25%
+    ax.fill_between(ax.get_xlim(), -1.0, -MAX_DD, color="#FED7D7", alpha=0.35,
+                    zorder=0, transform=ax.get_yaxis_transform())
     ax.axhline(0, color="#CBD5E0", linewidth=0.8, zorder=0)
-    _style_ax(ax, ylabel="Drawdown", title="Underwater Curves", pct_y=True)
+
+    # 2.2c — label maximum drawdown point for each portfolio
+    for label in ordered_labels + other_labels:
+        returns = panels["returns"][label]
+        dd = drawdown_curve(returns.loc[common_start:])
+        if not dd.empty:
+            min_dd = dd.min()
+            min_date = dd.idxmin()
+            ax.annotate(f"{min_date.strftime('%b %Y')}\n{min_dd:.1%}",
+                        xy=(min_date, min_dd),
+                        xytext=(10, -15), textcoords="offset points",
+                        fontsize=7.5, color=_PORTFOLIO_COLORS.get(label, "#718096"),
+                        fontweight="bold", va="top",
+                        arrowprops=dict(arrowstyle="->", color=_PORTFOLIO_COLORS.get(label, "#718096"), lw=0.8))
+
+    _style_ax(ax, ylabel="Drawdown", title="Underwater Curves  ·  Peak-to-Trough Loss", pct_y=True)
     ax.legend(loc="lower left")
     fig.tight_layout()
     path = figure_dir / FIGURE_FILENAMES["drawdown"]
+    fig.savefig(path, dpi=220)
+    plt.close(fig)
+    return path
+
+
+def _save_rolling_12m_returns_figure(panels: dict[str, object], figure_dir: Path) -> Path:
+    """Save the 252-day rolling annualized return chart for all four portfolios.
+
+    Inputs:
+    - `panels`: reconstructed reporting panels.
+    - `figure_dir`: destination figure directory.
+
+    Outputs:
+    - Path to the saved PNG.
+
+    Citation:
+    - Whitmore Task 8 rolling-return requirement.
+
+    Point-in-time safety:
+    - Ex-post plotting only.
+    """
+
+    _apply_whitmore_theme()
+    common_start = _common_plot_window(panels)
+    fig, ax = plt.subplots(figsize=(11.0, 5.8))
+
+    ordered_labels = [lbl for lbl in _PORTFOLIO_ORDER if lbl in panels["returns"]]
+    other_labels = [lbl for lbl in panels["returns"] if lbl not in ordered_labels]
+    for label in ordered_labels + other_labels:
+        returns = panels["returns"][label]
+        rolling = returns.loc[common_start:].rolling(window=252, min_periods=252).apply(
+            lambda x: (1 + x).prod() ** (252 / len(x)) - 1, raw=True
+        )
+        color = _PORTFOLIO_COLORS.get(label, "#718096")
+        lw = _PORTFOLIO_LW.get(label, 1.8)
+        ls = _PORTFOLIO_LS.get(label, "-")
+        ax.plot(rolling.index, rolling.values * 100, label=label, color=color,
+                linewidth=lw, linestyle=ls, zorder=3)
+
+    ax.axhline(0, color="#CBD5E0", linewidth=0.8, zorder=0)
+    _style_ax(ax, ylabel="Rolling 12-Month Return (%)",
+              title="Rolling 12-Month Annualized Return  ·  252-Day Window")
+    ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{v:.0f}%"))
+    ax.legend(loc="upper left")
+    fig.tight_layout()
+    path = figure_dir / "fig19_rolling_12m_returns.png"
     fig.savefig(path, dpi=220)
     plt.close(fig)
     return path
@@ -1654,8 +1748,8 @@ def _save_attribution_figure(per_signal: pd.DataFrame, figure_dir: Path) -> Path
     return path
 
 
-def _save_per_fold_figure(per_fold_metrics: pd.DataFrame, figure_dir: Path) -> Path:
-    """Save per-fold OOS annualized return and Sharpe bar chart.
+def _save_per_fold_figure(per_fold_metrics: pd.DataFrame, panels: dict[str, object], figure_dir: Path) -> Path:
+    """Save per-fold OOS Sharpe grouped bar chart: SAA+TAA vs BM1 vs BM2.
 
     Point-in-time safety:
     - Ex-post plotting only.
@@ -1663,36 +1757,94 @@ def _save_per_fold_figure(per_fold_metrics: pd.DataFrame, figure_dir: Path) -> P
 
     _apply_whitmore_theme()
     df = per_fold_metrics.copy()
+    folds = panels["folds"].copy()
     fold_labels = [f"Fold {int(fid)}" for fid in df["fold_id"]]
     x = np.arange(len(df))
-    navy = _PORTFOLIO_COLORS["SAA+TAA"]
-    gold  = _PORTFOLIO_COLORS["BM2"]
+    width = 0.25
 
-    fig, (ax_ret, ax_sr) = plt.subplots(1, 2, figsize=(11.0, 5.0))
+    # Compute per-fold Sharpe for BM1 and BM2 from panels
+    def _fold_sharpe(returns: pd.Series) -> pd.Series:
+        out = {}
+        for _, row in folds.iterrows():
+            mask = (returns.index >= row["test_start"]) & (returns.index <= row["test_end"])
+            block = returns.loc[mask]
+            out[int(row["fold_id"])] = sharpe_ratio(block) if not block.empty else np.nan
+        return pd.Series(out)
 
-    bars_ret = ax_ret.bar(x, df["annualized_return"] * 100, color=navy, width=0.55,
-                          zorder=3, edgecolor="white", linewidth=0.5)
-    ax_ret.axhline(0, color="#CBD5E0", linewidth=0.8)
-    for bar, val in zip(bars_ret, df["annualized_return"]):
-        ax_ret.text(bar.get_x() + bar.get_width() / 2, val * 100 + 0.3,
-                    f"{val * 100:.1f}%", ha="center", va="bottom", fontsize=8.5, color="#2D3748")
-    ax_ret.set_xticks(x)
-    ax_ret.set_xticklabels(fold_labels)
-    _style_ax(ax_ret, ylabel="Annualized Return", title="OOS Return by Fold  ·  SAA+TAA")
-    ax_ret.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{v:.0f}%"))
+    bm1_sharpe = _fold_sharpe(panels["returns"]["BM1"])
+    bm2_sharpe = _fold_sharpe(panels["returns"]["BM2"])
+    taa_sharpe = df.set_index("fold_id")["sharpe"]
 
-    bars_sr = ax_sr.bar(x, df["sharpe"], color=gold, width=0.55,
-                        zorder=3, edgecolor="white", linewidth=0.5)
-    ax_sr.axhline(0, color="#CBD5E0", linewidth=0.8)
-    for bar, val in zip(bars_sr, df["sharpe"]):
-        ax_sr.text(bar.get_x() + bar.get_width() / 2, val + 0.02,
-                   f"{val:.2f}", ha="center", va="bottom", fontsize=8.5, color="#2D3748")
-    ax_sr.set_xticks(x)
-    ax_sr.set_xticklabels(fold_labels)
-    _style_ax(ax_sr, ylabel="Sharpe Ratio (rf = 2%)", title="OOS Sharpe by Fold  ·  SAA+TAA")
+    fig, ax = plt.subplots(figsize=(11.0, 5.5))
+    bars1 = ax.bar(x - width, taa_sharpe.reindex(df["fold_id"]).values, width,
+                   color=_PORTFOLIO_COLORS["SAA+TAA"], label="SAA+TAA", zorder=3, edgecolor="white", linewidth=0.5)
+    bars2 = ax.bar(x, bm2_sharpe.reindex(df["fold_id"]).values, width,
+                   color=_PORTFOLIO_COLORS["BM2"], label="BM2", zorder=3, edgecolor="white", linewidth=0.5)
+    bars3 = ax.bar(x + width, bm1_sharpe.reindex(df["fold_id"]).values, width,
+                   color=_PORTFOLIO_COLORS["BM1"], label="BM1", zorder=3, edgecolor="white", linewidth=0.5)
 
-    fig.tight_layout(w_pad=3.0)
+    ax.axhline(0, color="#CBD5E0", linewidth=0.8, zorder=0)
+    for bars in (bars1, bars2, bars3):
+        for bar in bars:
+            height = bar.get_height()
+            if not np.isnan(height):
+                ax.text(bar.get_x() + bar.get_width() / 2, height + 0.02,
+                        f"{height:.2f}", ha="center", va="bottom", fontsize=7.5, color="#2D3748")
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(fold_labels)
+    _style_ax(ax, ylabel="Sharpe Ratio (rf = 2%)", title="OOS Sharpe by Fold  ·  SAA+TAA vs Benchmarks")
+    ax.legend(loc="upper left")
+    fig.tight_layout()
     path = figure_dir / FIGURE_FILENAMES["per_fold"]
+    fig.savefig(path, dpi=220)
+    plt.close(fig)
+    return path
+
+
+def _save_signal_weight_contribution_figure(figure_dir: Path) -> Path:
+    """Save a stacked area chart of signal-weight contribution to the expected-return vector.
+
+    Point-in-time safety:
+    - Ex-post plotting only.
+    """
+
+    path_candidate = figure_dir.parent / "signal_contribution_history.csv"
+    if not path_candidate.exists():
+        empty_path = figure_dir / "fig20_signal_weights_stacked.png"
+        fig, ax = plt.subplots(figsize=(11.0, 2.5))
+        ax.text(0.5, 0.5, "Signal contribution history not available — re-run walkforward to generate.",
+                ha="center", va="center", fontsize=10, color="#718096")
+        ax.axis("off")
+        fig.savefig(empty_path, dpi=150, bbox_inches="tight")
+        plt.close(fig)
+        return empty_path
+
+    _apply_whitmore_theme()
+    df = pd.read_csv(path_candidate, index_col="date", parse_dates=True)
+    signal_cols = [c for c in df.columns if c not in {"fold_id", "regime"}]
+    color_map = {
+        "regime": "#1f3f6e",
+        "trend": "#c9a227",
+        "momo": "#4a90d9",
+        "vix": "#6b7280",
+        "macro": "#059669",
+    }
+    colors = [color_map.get(c, "#718096") for c in signal_cols]
+
+    fig, ax = plt.subplots(figsize=(11.0, 5.8))
+    ax.stackplot(df.index,
+                 *[df[col].abs().values for col in signal_cols],
+                 labels=signal_cols,
+                 colors=colors,
+                 alpha=0.85)
+    ax.set_ylim(0, 1.0)
+    ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{100*v:.0f}%"))
+    ax.set_title("Signal Weight Contribution to Expected-Return Vector  ·  Stacked by Signal")
+    ax.set_ylabel("Absolute Contribution Share")
+    ax.legend(loc="upper left", title="Signal")
+    fig.tight_layout()
+    path = figure_dir / "fig20_signal_weights_stacked.png"
     fig.savefig(path, dpi=220)
     plt.close(fig)
     return path
@@ -2202,7 +2354,9 @@ def build_reporting(
     figure_dir.mkdir(parents=True, exist_ok=True)
     REPORT_DIR.mkdir(parents=True, exist_ok=True)
 
+    print("[reporting] Loading core outputs...")
     outputs = load_core_outputs(output_dir)
+    print("[reporting] Loading attribution outputs...")
     attribution = _load_attribution_outputs(
         start=start,
         end=end,
@@ -2211,15 +2365,18 @@ def build_reporting(
         ensemble_config=ensemble_config,
         output_dir=output_dir,
     )
+    print("[reporting] Building strategy panels...")
     panels = _build_strategy_panels(outputs, output_dir=output_dir)
+    print("[reporting] Building SAA method comparison (including HRP)...")
     saa_method_comparison, _ = build_saa_method_comparison(
         output_dir=output_dir,
-        include_hrp=saa_method == "hrp",
+        include_hrp=True,
     )
     if TRIAL_LEDGER_CSV.exists():
         existing_trial_ledger = pd.read_csv(TRIAL_LEDGER_CSV)
     else:
         existing_trial_ledger = pd.DataFrame()
+    print("[reporting] Building trial ledger and DSR summary...")
     trial_ledger, dsr_summary = _build_trial_ledger(
         output_dir=output_dir,
         folds=folds,
@@ -2227,10 +2384,12 @@ def build_reporting(
         saa_method_comparison=saa_method_comparison,
         existing_trial_ledger=existing_trial_ledger,
     )
+    print("[reporting] Computing portfolio metrics...")
     metrics = _portfolio_metrics_table(panels, trial_ledger)
     per_fold_metrics = _per_fold_metrics(outputs["oos_returns"])
     regime_allocations = _regime_allocation_summary(panels)
 
+    print("[reporting] Running IPS compliance audit...")
     compliance_rows = []
     compliance_rows.extend(
         _ips_compliance_rows(
@@ -2254,11 +2413,43 @@ def build_reporting(
     )
     compliance = pd.DataFrame(compliance_rows, columns=["portfolio", "date", "rule", "value", "bound"])
 
+    # 3.4 — export every report table as CSV
+    print("[reporting] Exporting tables to CSV...")
     metrics.to_csv(output_dir / PORTFOLIO_METRICS_FILENAME, index=False)
     per_fold_metrics.to_csv(output_dir / PER_FOLD_METRICS_FILENAME, index=False)
     regime_allocations.to_csv(output_dir / REGIME_ALLOCATION_FILENAME, index=False)
     compliance.to_csv(output_dir / IPS_COMPLIANCE_FILENAME, index=False)
     dsr_summary.to_csv(output_dir / DSR_SUMMARY_FILENAME, index=False)
+    saa_method_comparison.to_csv(output_dir / SAA_METHOD_COMPARISON_FILENAME, index=False)
+    attribution["per_signal"].to_csv(output_dir / "attribution_per_signal.csv", index=False)
+    attribution["taa_comparisons"].to_csv(output_dir / "attribution_taa_vs_saa.csv", index=False)
+    # SAA contribution table derived from metrics
+    contrib_rows = []
+    for p in ["BM1", "BM2", "SAA", "SAA+TAA"]:
+        r = metrics.loc[metrics["portfolio"] == p].iloc[0]
+        contrib_rows.append({
+            "portfolio": p,
+            "annualized_return": r["annualized_return"],
+            "annualized_volatility": r["annualized_volatility"],
+            "max_drawdown": r["max_drawdown"],
+            "sharpe_rf_2pct": r["sharpe_rf_2pct"],
+            "sortino_rf_2pct": r["sortino_rf_2pct"],
+            "calmar": r["calmar"],
+            "cost_drag_pa": r["cost_drag_pa"],
+            "turnover_pa": r["turnover_pa"],
+        })
+    pd.DataFrame(contrib_rows).to_csv(output_dir / "saa_contribution.csv", index=False)
+    # Benchmark weights
+    from taa_project.config import BM1_WEIGHTS, BM2_WEIGHTS, SAA_TARGETS
+    bm_df = pd.DataFrame([
+        {"portfolio": "BM1", "asset": k, "weight": v} for k, v in BM1_WEIGHTS.items()
+    ] + [
+        {"portfolio": "BM2", "asset": k, "weight": v} for k, v in BM2_WEIGHTS.items()
+    ] + [
+        {"portfolio": "SAA", "asset": k, "weight": v} for k, v in SAA_TARGETS.items()
+    ])
+    bm_df.to_csv(output_dir / "benchmark_weights.csv", index=False)
+
     trial_ledger_columns = list(dict.fromkeys(existing_trial_ledger.columns.tolist() + trial_ledger.columns.tolist()))
     trial_ledger_frames = [frame for frame in (existing_trial_ledger, trial_ledger) if not frame.empty]
     merged_trial_ledger = (
@@ -2277,18 +2468,21 @@ def build_reporting(
         )
     else:
         vix_signal_history = pd.DataFrame()
+    print("[reporting] Generating figures...")
     figures = {
         "cumgrowth": _save_cumgrowth_figure(panels, figure_dir),
         "drawdown": _save_drawdown_figure(panels, figure_dir),
+        "rolling_12m_returns": _save_rolling_12m_returns_figure(panels, figure_dir),
         "rolling_vol": _save_rolling_vol_figure(panels, figure_dir),
         "taa_weights": _save_taa_weights_figure(panels, figure_dir),
         "regime_shading": _save_regime_shading_figure(panels, figure_dir),
         "oos_folds": _save_fold_figure(panels, figure_dir),
         "attribution": _save_attribution_figure(attribution["per_signal"], figure_dir),
-        "per_fold": _save_per_fold_figure(per_fold_metrics, figure_dir),
+        "per_fold": _save_per_fold_figure(per_fold_metrics, panels, figure_dir),
         "signal_history": _save_signal_history_figure(
             outputs["oos_regimes"], vix_signal_history, figure_dir
         ),
+        "signal_weights": _save_signal_weight_contribution_figure(figure_dir),
         "contribution": _save_contribution_figure(metrics, figure_dir),
         "rolling_alpha": _save_rolling_alpha_figure(panels, figure_dir),
         "regime_forward_returns": _save_regime_forward_returns_figure(
@@ -2301,6 +2495,7 @@ def build_reporting(
         "correlation_heatmap": _save_correlation_heatmap_figure(figure_dir, output_dir),
         "cumulative_alpha": _save_cumulative_alpha_figure(panels, figure_dir),
     }
+    print("[reporting] Figures saved to", figure_dir)
 
     return {
         "metrics": metrics,

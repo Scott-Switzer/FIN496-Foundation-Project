@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 import pandas as pd
 from reportlab.lib import colors
@@ -13,7 +18,8 @@ from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import cm
 from reportlab.platypus import (
     BaseDocTemplate, Frame, Image, NextPageTemplate, PageBreak,
-    PageTemplate, Paragraph, Spacer, Table, TableStyle,
+    PageTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable,
+    KeepTogether,
 )
 
 from taa_project.analysis.reporting import (
@@ -28,15 +34,27 @@ from taa_project.config import FIGURES_DIR, OUTPUT_DIR, REPORT_DIR, TRIAL_LEDGER
 
 REPORT_PDF_FILENAME = "whitmore_report.pdf"
 
-NAVY = colors.HexColor("#1A365D")
-GOLD = colors.HexColor("#B8860B")
-WHITE = colors.HexColor("#FFFFFF")
-LIGHT_GRAY = colors.HexColor("#F2F2F2")
-DARK_GRAY = colors.HexColor("#333333")
-MEDIUM_GRAY = colors.HexColor("#666666")
-TABLE_HEADER_BG = colors.HexColor("#1A365D")
-TABLE_ROW_ALT = colors.HexColor("#EEF2F7")
-TABLE_BORDER = colors.HexColor("#CCCCCC")
+BASE_FONT = "Times-Roman"
+BASE_FONT_BOLD = "Times-Bold"
+BASE_FONT_ITALIC = "Times-Italic"
+
+COL_NAVY = colors.HexColor("#1B2A4A")
+COL_GOLD = colors.HexColor("#C9A227")
+COL_CREAM = colors.HexColor("#FAFAF7")
+COL_GREY = colors.HexColor("#F0F0ED")
+COL_MID = colors.HexColor("#CCCCCC")
+COL_SLATE = colors.HexColor("#6B7280")
+COL_WHITE = colors.white
+
+NAVY = COL_NAVY
+GOLD = COL_GOLD
+WHITE = COL_WHITE
+LIGHT_GRAY = COL_GREY
+DARK_GRAY = COL_NAVY
+MEDIUM_GRAY = COL_SLATE
+TABLE_HEADER_BG = COL_NAVY
+TABLE_ROW_ALT = COL_GREY
+TABLE_BORDER = COL_MID
 ASSET_NAMES = {
     "SPXT": "S&P 500 Total Return",
     "LBUSTRUU": "US Aggregate Bonds",
@@ -59,12 +77,19 @@ METHOD_NAMES = {
     "minimum_variance": "Min Variance",
 }
 
-FONT = "Times-Roman"
-FONT_BOLD = "Times-Bold"
-FONT_ITALIC = "Times-Italic"
-BODY_SIZE = 10
+FONT = BASE_FONT
+FONT_BOLD = BASE_FONT_BOLD
+FONT_ITALIC = BASE_FONT_ITALIC
+BODY_SIZE = 9
 SMALL_SIZE = 8.5
 PAGE_W, PAGE_H = A4
+LEFT_MARGIN = 2.0 * cm
+RIGHT_MARGIN = 2.0 * cm
+DEFAULT_LEFT_MARGIN = LEFT_MARGIN
+DEFAULT_RIGHT_MARGIN = RIGHT_MARGIN
+DEFAULT_TOP_MARGIN = 1.45 * cm
+DEFAULT_BOTTOM_MARGIN = 1.05 * cm
+CONTENT_W = PAGE_W - DEFAULT_LEFT_MARGIN - DEFAULT_RIGHT_MARGIN
 
 
 def _fmt_pct(value: float) -> str:
@@ -72,38 +97,60 @@ def _fmt_pct(value: float) -> str:
 
 
 def _styles():
+    caption_style = ParagraphStyle("Caption", fontName=FONT_ITALIC, fontSize=7.5, leading=9.375,
+                                   textColor=COL_SLATE, alignment=TA_CENTER,
+                                   spaceBefore=2, spaceAfter=4,
+                                   wordWrap="LTR")
     return {
         "title": ParagraphStyle("Title", fontName=FONT_BOLD, fontSize=28, leading=32,
-                                textColor=WHITE, alignment=TA_CENTER, spaceAfter=6),
+                                textColor=COL_WHITE, alignment=TA_CENTER, spaceBefore=0,
+                                spaceAfter=3, wordWrap="LTR"),
         "title_sub": ParagraphStyle("TitleSub", fontName=FONT, fontSize=13, leading=16,
-                                    textColor=colors.HexColor("#A0C4E8"), alignment=TA_CENTER, spaceAfter=3),
+                                    textColor=COL_GREY, alignment=TA_CENTER, spaceBefore=0,
+                                    spaceAfter=3, wordWrap="LTR"),
         "h1": ParagraphStyle("H1", fontName=FONT_BOLD, fontSize=12, leading=15,
-                              textColor=NAVY, spaceBefore=14, spaceAfter=5),
+                              textColor=COL_NAVY, spaceBefore=8, spaceAfter=3,
+                              wordWrap="LTR", keepWithNext=1),
         "h2": ParagraphStyle("H2", fontName=FONT_BOLD, fontSize=10.5, leading=13,
-                              textColor=NAVY, spaceBefore=9, spaceAfter=3),
-        "body": ParagraphStyle("Body", fontName=FONT, fontSize=BODY_SIZE, leading=13,
-                                textColor=DARK_GRAY, spaceAfter=5, alignment=TA_JUSTIFY),
-        "body_small": ParagraphStyle("BodySmall", fontName=FONT, fontSize=9, leading=11.5,
-                                      textColor=DARK_GRAY, spaceAfter=4, alignment=TA_JUSTIFY),
-        "bullet": ParagraphStyle("Bullet", fontName=FONT, fontSize=BODY_SIZE, leading=13,
-                                 textColor=DARK_GRAY, spaceAfter=3, leftIndent=10, bulletIndent=2,
-                                 bulletFontName=FONT, bulletFontSize=8),
-        "bullet_small": ParagraphStyle("BulletSmall", fontName=FONT, fontSize=9, leading=11.5,
-                                        textColor=DARK_GRAY, spaceAfter=2, leftIndent=10, bulletIndent=2,
-                                        bulletFontName=FONT, bulletFontSize=7),
-        "caption": ParagraphStyle("Caption", fontName=FONT_ITALIC, fontSize=7.5, leading=10,
-                                   textColor=MEDIUM_GRAY, spaceAfter=3),
+                              textColor=COL_NAVY, spaceBefore=8, spaceAfter=3,
+                              wordWrap="LTR", keepWithNext=1),
+        "body": ParagraphStyle("Body", fontName=FONT, fontSize=BODY_SIZE, leading=BODY_SIZE * 1.25,
+                                textColor=COL_NAVY, spaceBefore=0, spaceAfter=3,
+                                alignment=TA_JUSTIFY, wordWrap="LTR",
+                                allowWidows=0, allowOrphans=0, keepWithPrevious=1),
+        "body_small": ParagraphStyle("BodySmall", fontName=FONT, fontSize=SMALL_SIZE, leading=SMALL_SIZE * 1.25,
+                                      textColor=COL_NAVY, spaceBefore=0, spaceAfter=3,
+                                      alignment=TA_JUSTIFY, wordWrap="LTR",
+                                      allowWidows=0, allowOrphans=0, keepWithPrevious=1),
+        "bullet": ParagraphStyle("Bullet", fontName=FONT, fontSize=BODY_SIZE, leading=BODY_SIZE * 1.25,
+                                 textColor=COL_NAVY, spaceBefore=0, spaceAfter=3,
+                                 leftIndent=10, bulletIndent=2,
+                                 bulletFontName=FONT, bulletFontSize=8,
+                                 allowWidows=0, allowOrphans=0, keepWithPrevious=1),
+        "bullet_small": ParagraphStyle("BulletSmall", fontName=FONT, fontSize=SMALL_SIZE, leading=SMALL_SIZE * 1.25,
+                                        textColor=COL_NAVY, spaceBefore=0, spaceAfter=3,
+                                        leftIndent=10, bulletIndent=2,
+                                        bulletFontName=FONT, bulletFontSize=7,
+                                        allowWidows=0, allowOrphans=0, keepWithPrevious=1),
+        "caption": caption_style,
+        "caption_style": caption_style,
         "label": ParagraphStyle("Label", fontName=FONT_BOLD, fontSize=8, leading=10,
-                                 textColor=NAVY, spaceAfter=1),
+                                 textColor=COL_NAVY, spaceBefore=0, spaceAfter=3,
+                                 wordWrap="LTR"),
         "title_body": ParagraphStyle("TitleBody", fontName=FONT, fontSize=BODY_SIZE, leading=13,
-                                      textColor=WHITE, alignment=TA_CENTER, spaceAfter=5),
+                                      textColor=COL_WHITE, alignment=TA_CENTER, spaceBefore=0,
+                                      spaceAfter=3, wordWrap="LTR"),
         "title_caption": ParagraphStyle("TitleCaption", fontName=FONT_ITALIC, fontSize=9, leading=11,
-                                         textColor=colors.HexColor("#A0C4E8"), alignment=TA_CENTER, spaceAfter=3),
+                                         textColor=COL_GREY, alignment=TA_CENTER, spaceBefore=0,
+                                         spaceAfter=3, wordWrap="LTR"),
     }
 
 
 def _df_table(frame: pd.DataFrame, max_rows: int = 20, float_fmt: str = ".3f",
-              font_size: int = 7, first_col_ratio: float = 1.0) -> Table:
+              font_size: int = 7, first_col_ratio: float = 1.0,
+              available_width: float = CONTENT_W,
+              col_widths: list[float] | None = None,
+              header_font_size: float = 8) -> Table:
     trimmed = frame.head(max_rows).copy()
     data = [list(trimmed.columns)]
     for _, row in trimmed.iterrows():
@@ -116,36 +163,44 @@ def _df_table(frame: pd.DataFrame, max_rows: int = 20, float_fmt: str = ".3f",
         data.append(rendered)
 
     col_count = len(data[0]) if data else 1
-    available_width = PAGE_W - 2.8 * cm
-    if first_col_ratio != 1.0 and col_count > 1:
+    if col_widths is not None:
+        col_widths = [float(width) for width in col_widths]
+    elif first_col_ratio != 1.0 and col_count > 1:
         total_weight = first_col_ratio + (col_count - 1)
         col_widths = [available_width * first_col_ratio / total_weight] + \
                      [available_width / total_weight] * (col_count - 1)
     else:
         col_widths = [available_width / col_count] * col_count
 
-    table = Table(data, repeatRows=1, colWidths=col_widths, hAlign="CENTER")
-    style_cmds = [
-        ("BACKGROUND", (0, 0), (-1, 0), TABLE_HEADER_BG),
-        ("TEXTCOLOR", (0, 0), (-1, 0), WHITE),
-        ("FONTNAME", (0, 0), (-1, 0), FONT_BOLD),
-        ("FONTSIZE", (0, 0), (-1, 0), font_size),
-        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+    table = Table(data, repeatRows=1, colWidths=col_widths, hAlign="LEFT")
+    table.setStyle(TableStyle([
+        # Header row: navy background, white bold text
+        ("BACKGROUND", (0, 0), (-1, 0), COL_NAVY),
+        ("TEXTCOLOR", (0, 0), (-1, 0), COL_WHITE),
+        ("FONTNAME", (0, 0), (-1, 0), BASE_FONT_BOLD),
+        ("FONTSIZE", (0, 0), (-1, 0), header_font_size),
+        ("TOPPADDING", (0, 0), (-1, -1), 3),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ("LEFTPADDING", (0, 0), (-1, -1), 5),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+        ("TOPPADDING", (0, 0), (-1, 0), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, 0), 4),
+        # Alternating row shading
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [COL_WHITE, COL_GREY]),
+        # Body text: dark navy, readable size
+        ("TEXTCOLOR", (0, 1), (-1, -1), COL_NAVY),
+        ("FONTNAME", (0, 1), (-1, -1), BASE_FONT),
+        ("FONTSIZE", (0, 1), (-1, -1), 7.5),
+        # Grid lines
+        ("GRID", (0, 0), (-1, -1), 0.4, COL_MID),
+        ("LINEBELOW", (0, 0), (-1, 0), 1.0, COL_GOLD),
+        # Alignment: first column left, rest centered
         ("ALIGN", (0, 0), (0, -1), "LEFT"),
-        ("FONTNAME", (0, 1), (-1, -1), FONT),
-        ("FONTSIZE", (0, 1), (-1, -1), font_size - 0.5),
-        ("TEXTCOLOR", (0, 1), (-1, -1), DARK_GRAY),
-        ("GRID", (0, 0), (-1, -1), 0.3, TABLE_BORDER),
+        ("ALIGN", (1, 0), (-1, -1), "CENTER"),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("TOPPADDING", (0, 0), (-1, -1), 2),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
-        ("LEFTPADDING", (0, 0), (-1, -1), 4),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
-    ]
-    for ri in range(1, len(data)):
-        if ri % 2 == 0:
-            style_cmds.append(("BACKGROUND", (0, ri), (-1, ri), TABLE_ROW_ALT))
-    table.setStyle(TableStyle(style_cmds))
+        # No word wrap truncation — allow wrapping
+        ("WORDWRAP", (0, 0), (-1, -1), True),
+    ]))
     return table
 
 
@@ -167,17 +222,21 @@ def _fmt_display_df(df: pd.DataFrame, col_map: dict, pct_cols: list = None,
     return df
 
 
-def _center_image(path: Path, max_width: float = None, max_height: float = None):
-    """Return a centered Image flowable if the path exists."""
-    from reportlab.platypus import Image
-    if not path.exists():
-        return Paragraph("Figure not available. Run pipeline first.", _styles()["caption"])
-    if max_width is None:
-        fw = PAGE_W - 2.8 * cm
-        max_width = fw
-    if max_height is None:
-        max_height = 9.5 * cm
-    return Image(str(path), width=max_width, height=max_height, hAlign="CENTER")
+def _safe_image(path: Path, width: float, height: float, styles: dict):
+    """Return Image if file exists, else a warning Paragraph."""
+    if Path(path).exists():
+        return Image(str(path), width=width, height=height, hAlign="CENTER")
+    return Paragraph(f"[Chart not available: {Path(path).name}]", styles["caption_style"])
+
+
+def _section_heading(story: list, text: str, styles: dict) -> None:
+    story.append(Paragraph(text, styles["h1"]))
+    story.append(HRFlowable(width="100%", thickness=0.8, color=COL_GOLD,
+                            spaceAfter=3, spaceBefore=0))
+
+
+def _chart_caption(text: str, styles: dict) -> Paragraph:
+    return Paragraph(text, styles["caption_style"])
 
 
 _SIGNAL_DISPLAY = {
@@ -226,21 +285,37 @@ def _build_attribution_figure(per_signal: pd.DataFrame, figure_dir: Path) -> Pat
 
 def _header_footer(canvas, doc):
     canvas.saveState()
-    canvas.setStrokeColor(NAVY)
-    canvas.setLineWidth(0.8)
-    canvas.line(1.4 * cm, PAGE_H - 1.2 * cm, PAGE_W - 1.4 * cm, PAGE_H - 1.2 * cm)
-    canvas.setFont(FONT, 7)
-    canvas.setFillColor(MEDIUM_GRAY)
-    # 4.4 — header and footer
-    canvas.drawString(1.5 * cm, PAGE_H - 1.45 * cm, "Whitmore Capital Partners | Confidential")
-    canvas.drawCentredString(PAGE_W / 2, 0.8 * cm, str(doc.page))
-    canvas.drawRightString(PAGE_W - 1.5 * cm, 0.65 * cm, "Chapman University | April 2026")
+    header_text_y = PAGE_H - DEFAULT_TOP_MARGIN + 10
+    header_line_y = PAGE_H - DEFAULT_TOP_MARGIN + 2
+    footer_text_y = 0.8 * cm
+    footer_line_y = DEFAULT_BOTTOM_MARGIN - 6
+
+    canvas.setFont(BASE_FONT, 7)
+    canvas.setFillColor(COL_SLATE)
+    canvas.drawString(DEFAULT_LEFT_MARGIN, header_text_y,
+                      "Whitmore Capital Partners | Confidential")
+    canvas.drawRightString(PAGE_W - DEFAULT_RIGHT_MARGIN, header_text_y,
+                           "Chapman University | April 2026")
+
+    canvas.setStrokeColor(COL_GOLD)
+    canvas.setLineWidth(0.5)
+    canvas.line(DEFAULT_LEFT_MARGIN, header_line_y,
+                PAGE_W - DEFAULT_RIGHT_MARGIN, header_line_y)
+
+    canvas.setStrokeColor(COL_MID)
+    canvas.setLineWidth(0.3)
+    canvas.line(DEFAULT_LEFT_MARGIN, footer_line_y,
+                PAGE_W - DEFAULT_RIGHT_MARGIN, footer_line_y)
+
+    canvas.setFont(BASE_FONT, 7)
+    canvas.setFillColor(COL_SLATE)
+    canvas.drawCentredString(PAGE_W / 2, footer_text_y, str(doc.page))
     canvas.restoreState()
 
 
 def _title_page_header(canvas, doc):
     canvas.saveState()
-    canvas.setFillColor(NAVY)
+    canvas.setFillColor(COL_WHITE)
     canvas.rect(0, 0, PAGE_W, PAGE_H, fill=1, stroke=0)
     canvas.restoreState()
 
@@ -297,45 +372,203 @@ def build_report(
     dsr = inputs["dsr_summary"].iloc[0]
     disclosed = int(dsr.get("n_disclosed_trials", 0))
 
+    left_margin = DEFAULT_LEFT_MARGIN
+    right_margin = DEFAULT_RIGHT_MARGIN
+    top_margin = DEFAULT_TOP_MARGIN
+    bottom_margin = DEFAULT_BOTTOM_MARGIN
+    CONTENT_W = PAGE_W - left_margin - right_margin
+    full_chart_h = CONTENT_W * 0.42
+    medium_chart_h = CONTENT_W * 0.38
+    key_metrics_widths = [
+        CONTENT_W * 0.19,
+        CONTENT_W * 0.11,
+        CONTENT_W * 0.11,
+        CONTENT_W * 0.12,
+        CONTENT_W * 0.115,
+        CONTENT_W * 0.115,
+        CONTENT_W * 0.115,
+        CONTENT_W * 0.115,
+    ]
+    saa_method_widths = [CONTENT_W * 0.22] + [CONTENT_W * (0.78 / 7)] * 7
+    saa_contrib_widths = [
+        CONTENT_W * 0.34,
+        CONTENT_W * 0.22,
+        CONTENT_W * 0.22,
+        CONTENT_W * 0.22,
+    ]
+    ips_widths = [
+        CONTENT_W * 0.34,
+        CONTENT_W * 0.22,
+        CONTENT_W * 0.22,
+        CONTENT_W * 0.22,
+    ]
+    per_fold_widths = [
+        CONTENT_W * 0.08,
+        CONTENT_W * 0.14,
+        CONTENT_W * 0.14,
+        CONTENT_W * 0.12,
+        CONTENT_W * 0.12,
+        CONTENT_W * 0.12,
+        CONTENT_W * 0.12,
+        CONTENT_W * 0.16,
+    ]
+    regime_budget_widths = [
+        CONTENT_W * 0.20,
+        CONTENT_W * 0.15,
+        CONTENT_W * 0.65,
+    ]
+
     story = []
-    fw = PAGE_W - 2.8 * cm
 
     # PAGE 1 - TITLE
-    story.append(Spacer(1, 3.5 * cm))
-    story.append(Paragraph("Whitmore Capital Partners", S["title"]))
-    story.append(Paragraph("Strategic and Tactical Asset Allocation", S["title_sub"]))
-    story.append(Spacer(1, 0.6 * cm))
-    from reportlab.platypus import HRFlowable
-    story.append(HRFlowable(width="35%", thickness=1.5, color=GOLD, spaceAfter=14, spaceBefore=0))
-    story.append(Paragraph("Research Report | FIN 496 Foundation Project", S["title_sub"]))
-    story.append(Spacer(1, 0.4 * cm))
-    story.append(Paragraph("Prepared for the Whitmore Investment Principal", S["title_body"]))
-    story.append(Paragraph("Chapman University | April 2026 | Confidential", S["title_caption"]))
-    story.append(NextPageTemplate("body"))
+    cover_firm_style = ParagraphStyle("cover_firm",
+        fontName=BASE_FONT_BOLD, fontSize=12,
+        leading=16, textColor=COL_SLATE,
+        alignment=TA_CENTER, spaceAfter=0, spaceBefore=0,
+    )
+    cover_title_style = ParagraphStyle("cover_title",
+        fontName=BASE_FONT_BOLD, fontSize=22,
+        leading=28, textColor=COL_NAVY,
+        alignment=TA_CENTER, spaceAfter=0, spaceBefore=0,
+    )
+    cover_sub_style = ParagraphStyle("cover_sub",
+        fontName=BASE_FONT, fontSize=12,
+        leading=16, textColor=COL_GOLD,
+        alignment=TA_CENTER, spaceAfter=0, spaceBefore=0,
+    )
+    cover_prepared_style = ParagraphStyle("cover_prepared",
+        fontName=BASE_FONT_ITALIC, fontSize=11,
+        leading=15, textColor=COL_NAVY,
+        alignment=TA_CENTER, spaceAfter=0, spaceBefore=0,
+    )
+    cover_meta_style = ParagraphStyle("cover_meta",
+        fontName=BASE_FONT, fontSize=9,
+        leading=13, textColor=COL_SLATE,
+        alignment=TA_CENTER, spaceAfter=0, spaceBefore=0,
+    )
+    cover_inner_content = [
+        Paragraph("WHITMORE CAPITAL PARTNERS", cover_firm_style),
+        Spacer(1, 10),
+        Paragraph("Strategic &amp; Tactical Asset Allocation", cover_title_style),
+        Spacer(1, 8),
+        Paragraph("Research Report | FIN 496 Foundation Project", cover_sub_style),
+        Spacer(1, 24),
+        HRFlowable(width="60%", thickness=1.5, color=COL_GOLD,
+                   hAlign="CENTER", spaceAfter=20, spaceBefore=0),
+        Paragraph("Prepared for the Whitmore Investment Principal", cover_prepared_style),
+        Spacer(1, 8),
+        Paragraph("Chapman University &nbsp;|&nbsp; April 2026 &nbsp;|&nbsp; Confidential",
+                  cover_meta_style),
+    ]
+    cover_content_h = PAGE_H - 4 * cm
+    cover_pad = cover_content_h * 0.28
+    cover_table = Table(
+        [[cover_inner_content]],
+        colWidths=[CONTENT_W],
+        rowHeights=[cover_content_h],
+        hAlign="CENTER",
+    )
+    cover_table.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (0, 0), "MIDDLE"),
+        ("ALIGN", (0, 0), (0, 0), "CENTER"),
+        ("TOPPADDING", (0, 0), (0, 0), cover_pad),
+        ("BOTTOMPADDING", (0, 0), (0, 0), cover_pad),
+        ("LEFTPADDING", (0, 0), (0, 0), 0),
+        ("RIGHTPADDING", (0, 0), (0, 0), 0),
+        ("BACKGROUND", (0, 0), (0, 0), COL_WHITE),
+    ]))
+    story.append(cover_table)
     story.append(PageBreak())
 
     # PAGE 2 - TABLE OF CONTENTS (4.2)
-    story.append(Paragraph("Table of Contents", S["h1"]))
-    story.append(Spacer(1, 0.05 * cm))
+    toc_heading_style = ParagraphStyle(
+        "toc_heading",
+        fontName=BASE_FONT_BOLD,
+        fontSize=16,
+        leading=20,
+        textColor=COL_NAVY,
+        spaceAfter=6,
+        spaceBefore=0,
+    )
+    story.append(Paragraph("Table of Contents", toc_heading_style))
+    story.append(HRFlowable(width="100%", thickness=1.0, color=COL_GOLD,
+                            spaceAfter=14, spaceBefore=0))
     toc_data = [
-        ["Section", "Page"],
         ["Executive Summary", "3"],
-        ["SAA Construction and Methodology", "4"],
-        ["TAA Signal Design", "5"],
+        ["SAA Construction and Methodology", "3"],
+        ["TAA Signal Design", "4"],
         ["Regime-Based Risk Budgeting & Opportunistic Sleeve", "6"],
         ["Walk-Forward Validation", "6"],
-        ["Performance Charts", "7"],
-        ["TAA Weight Allocation & Regime Detection", "8"],
-        ["Walk-Forward Folds, SAA/TAA Contribution & Signal Attribution", "9"],
-        ["IPS Compliance Audit", "10"],
-        ["Recommendation", "11"],
+        ["Performance Charts", "8"],
+        ["TAA Weight Allocation & Regime Detection", "9"],
+        ["Walk-Forward Folds, SAA/TAA Contribution & Signal Attribution", "10"],
+        ["IPS Compliance Audit", "11"],
+        ["Recommendation", "12"],
         ["Appendix", "12"],
     ]
-    story.append(_df_table(pd.DataFrame(toc_data[1:], columns=toc_data[0]), max_rows=12, font_size=9))
+    toc_table = Table(
+        toc_data,
+        colWidths=[CONTENT_W * 0.88, CONTENT_W * 0.12],
+        hAlign="LEFT",
+    )
+    toc_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), COL_WHITE),
+        ("TEXTCOLOR", (0, 0), (-1, -1), COL_NAVY),
+        ("FONTNAME", (0, 0), (-1, -1), BASE_FONT),
+        ("FONTSIZE", (0, 0), (-1, -1), 13),
+        ("LEADING", (0, 0), (-1, -1), 13),
+        ("TOPPADDING", (0, 0), (-1, -1), 10),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("ALIGN", (1, 0), (1, -1), "RIGHT"),
+        ("ALIGN", (0, 0), (0, -1), "LEFT"),
+        ("FONTNAME", (1, 0), (1, -1), BASE_FONT_BOLD),
+        ("LINEBELOW", (0, 0), (-1, -2), 0.3, COL_MID),
+        ("FONTNAME", (0, -1), (-1, -1), BASE_FONT_ITALIC),
+    ]))
+    story.append(toc_table)
+    story.append(Spacer(1, 0.25 * cm))
+    about_heading_style = ParagraphStyle(
+        "toc_about_heading",
+        fontName=BASE_FONT_BOLD,
+        fontSize=11,
+        leading=13,
+        textColor=COL_NAVY,
+        spaceAfter=3,
+        spaceBefore=0,
+    )
+    about_style = ParagraphStyle(
+        "toc_about",
+        fontName=BASE_FONT,
+        fontSize=10,
+        leading=15,
+        textColor=COL_SLATE,
+        spaceAfter=0,
+        spaceBefore=0,
+        alignment=TA_JUSTIFY,
+        wordWrap="LTR",
+    )
+    about_text = (
+        "This report was prepared by Chapman University FIN 496 "
+        "for the Whitmore Investment Principal. It presents the "
+        "construction methodology, backtested performance, and "
+        "investment recommendation for a Strategic and Tactical "
+        "Asset Allocation framework managing approximately "
+        "$1.8 billion in diversified financial assets. All "
+        "performance figures are net of a 5 basis point "
+        "round-trip transaction cost and are derived from a "
+        "walk-forward out-of-sample backtest spanning January "
+        "2003 through April 2026. This document is confidential "
+        "and intended solely for the use of the Whitmore "
+        "Investment Principal and authorised advisers."
+    )
+    story.append(Paragraph("About This Report", about_heading_style))
+    story.append(Paragraph(about_text, about_style))
     story.append(PageBreak())
 
     # PAGE 3 - EXECUTIVE SUMMARY + KEY METRICS
-    story.append(Paragraph("Executive Summary", S["h1"]))
+    _section_heading(story, "Executive Summary", S)
     story.append(Spacer(1, 0.05 * cm))
 
     # 1.1 — Client-facing executive summary (under 200 words)
@@ -362,7 +595,7 @@ def build_report(
     story.append(Paragraph("Key Metrics (2003–2026 walk-forward, net of 5 bps round-trip costs):", S["label"]))
     story.append(Spacer(1, 0.05 * cm))
     perf_data = [
-        ["Portfolio", "Return p.a.", "Volatility p.a.", "Max Drawdown", "Sharpe", "Sortino", "Calmar", "VaR 95%"],
+        ["Portfolio", "Return p.a.", "Vol p.a.", "Max DD", "Sharpe", "Sortino", "Calmar", "VaR 95%"],
     ]
     for name in ["SAA+TAA", "SAA", "BM2", "BM1"]:
         r = metrics.loc[name]
@@ -376,7 +609,9 @@ def build_report(
             f"{float(r['calmar']):.2f}",
             _fmt_pct(r["var_95_historical"]),
         ])
-    story.append(_df_table(pd.DataFrame(perf_data[1:], columns=perf_data[0]), max_rows=5))
+    story.append(_df_table(pd.DataFrame(perf_data[1:], columns=perf_data[0]), max_rows=5,
+                           available_width=CONTENT_W, col_widths=key_metrics_widths,
+                           header_font_size=7.5))
 
     story.append(Spacer(1, 0.1 * cm))
     story.append(Paragraph(
@@ -420,11 +655,13 @@ def build_report(
         ["Swiss Franc", "—", "5%"],
     ]
     story.append(_df_table(pd.DataFrame(bm_data[1:], columns=bm_data[0]), max_rows=10,
-                           first_col_ratio=3.0))
+                           available_width=CONTENT_W))
 
     # PAGE 4 - SAA CONSTRUCTION
-    story.append(PageBreak())
-    story.append(Paragraph("SAA Construction and Methodology", S["h1"]))
+    story.append(Spacer(1, 0.3 * cm))
+    story.append(HRFlowable(width="100%", thickness=0.5, color=COL_MID,
+                            spaceAfter=6, spaceBefore=0))
+    _section_heading(story, "SAA Construction and Methodology", S)
 
     story.append(Paragraph(
         "The Strategic Asset Allocation sets the baseline weights for the 11 assets across the Core, "
@@ -448,7 +685,8 @@ def build_report(
         select=["method", "annualized_return", "annualized_volatility", "max_drawdown",
                 "sharpe", "sortino", "calmar", "turnover_pa"],
     )
-    story.append(_df_table(saa_inline, max_rows=6, first_col_ratio=2.0))
+    story.append(_df_table(saa_inline, max_rows=6, available_width=CONTENT_W,
+                           col_widths=saa_method_widths))
 
     story.append(Spacer(1, 0.1 * cm))
     story.append(Paragraph(
@@ -501,7 +739,7 @@ def build_report(
     for asset, weight in SAA_TARGETS.items():
         saa_rows.append([ASSET_NAMES.get(asset, asset), sleeve_map.get(asset, ""), _fmt_pct(weight)])
     story.append(_df_table(pd.DataFrame(saa_rows[1:], columns=saa_rows[0]), max_rows=12,
-                           first_col_ratio=2.5))
+                           available_width=CONTENT_W))
 
     story.append(Paragraph(
         "FTSE100 and BITCOIN appear in the table with a 0.00% target weight. FTSE100 is excluded "
@@ -526,7 +764,7 @@ def build_report(
 
     # PAGE 4 - TAA SIGNAL DESIGN
     story.append(Spacer(1, 0.15 * cm))
-    story.append(Paragraph("TAA Signal Design", S["h1"]))
+    _section_heading(story, "TAA Signal Design", S)
 
     story.append(Paragraph(
         "The Tactical Asset Allocation layer tilts the SAA target weights each month using five "
@@ -628,11 +866,14 @@ def build_report(
         "the signal's weight in the final score. The optimizer then solves for new portfolio weights "
         "subject to all IPS constraints and the regime-based volatility budget.",
         S["body_small"]))
-    story.append(_center_image(inputs["figures"]["signal_pipeline"], max_width=fw, max_height=6.0 * cm))
+    story.append(_safe_image(inputs["figures"]["signal_pipeline"], CONTENT_W, full_chart_h, S))
+    story.append(_chart_caption(
+        "Figure 1: Signal pipeline from independent tactical inputs to monthly optimizer weights.",
+        S))
 
     # PAGE 5 - RISK BUDGETS + OPPORTUNISTIC + WALK-FORWARD
     story.append(Spacer(1, 0.15 * cm))
-    story.append(Paragraph("Regime-Based Risk Budgeting", S["h1"]))
+    _section_heading(story, "Regime-Based Risk Budgeting", S)
 
     story.append(Paragraph(
         "Rather than use one volatility target for all market conditions, the optimizer's monthly "
@@ -646,7 +887,8 @@ def build_report(
         ["Neutral", "12%", "No clear stress or risk-on signal from the HMM"],
         ["Stress", "8%", "VIX elevated, credit spreads widening, curve inverting"],
     ]
-    story.append(_df_table(pd.DataFrame(budget_data[1:], columns=budget_data[0]), max_rows=3))
+    story.append(_df_table(pd.DataFrame(budget_data[1:], columns=budget_data[0]), max_rows=3,
+                           available_width=CONTENT_W, col_widths=regime_budget_widths))
 
     story.append(Spacer(1, 0.1 * cm))
     story.append(Paragraph(
@@ -658,7 +900,7 @@ def build_report(
         S["body_small"]))
 
     story.append(Spacer(1, 0.12 * cm))
-    story.append(Paragraph("Opportunistic Sleeve", S["h1"]))
+    _section_heading(story, "Opportunistic Sleeve", S)
     story.append(Paragraph(
         "The IPS permits allocation to 23 Appendix A assets (international equities, sovereign "
         "and corporate bonds, commodities, currencies, Ethereum) for short-term alpha capture. "
@@ -674,7 +916,7 @@ def build_report(
         S["body_small"]))
 
     story.append(Spacer(1, 0.12 * cm))
-    story.append(Paragraph("Walk-Forward Validation", S["h1"]))
+    _section_heading(story, "Walk-Forward Validation", S)
     story.append(Paragraph(
         "We split the out-of-sample period (January 2003 through April 2026) into five "
         "contiguous, expanding folds. Each fold's initial HMM training window is separated from "
@@ -689,14 +931,23 @@ def build_report(
     fold_inline = _fmt_display_df(
         inputs["per_fold"],
         col_map={"fold_id": "Fold", "start_date": "Start", "end_date": "End",
-                 "annualized_return": "Return p.a.", "annualized_volatility": "Vol p.a.",
+                 "annualized_return": "Ret. p.a.", "annualized_volatility": "Vol",
                  "sharpe": "Sharpe", "sortino": "Sortino", "max_drawdown": "Max DD"},
         pct_cols=["annualized_return", "annualized_volatility", "max_drawdown"],
         float2_cols=["sharpe", "sortino"],
         select=["fold_id", "start_date", "end_date", "annualized_return",
                 "annualized_volatility", "sharpe", "sortino", "max_drawdown"],
     )
-    story.append(_df_table(fold_inline, max_rows=5, first_col_ratio=1.5))
+    story.append(_df_table(fold_inline, max_rows=5, available_width=CONTENT_W,
+                           col_widths=per_fold_widths))
+    story.append(Spacer(1, 0.1 * cm))
+    story.append(Paragraph("Per-Fold Sharpe Comparison", S["h2"]))
+    story.append(_safe_image(inputs["figures"]["per_fold"], CONTENT_W, medium_chart_h, S))
+    story.append(_chart_caption(
+        "Figure 2: Grouped Sharpe ratios by fold show SAA+TAA outperforming both benchmarks in "
+        "every fold except Fold 2 (GFC), where all portfolios suffered but SAA+TAA still preserved "
+        "relative capital.",
+        S))
 
     story.append(Spacer(1, 0.08 * cm))
     pf = inputs["per_fold"]
@@ -749,65 +1000,76 @@ def build_report(
 
     # PAGE 6 - PERFORMANCE FIGURES
     story.append(PageBreak())
-    story.append(Paragraph("Performance Chart: Cumulative Growth", S["h1"]))
+    _section_heading(story, "Performance Chart: Cumulative Growth", S)
     story.append(Paragraph(
         "All four portfolios indexed to 100 at the first common date. SAA+TAA (navy) outperforms "
         "Benchmark 2 (gold), Benchmark 1 (slate), and standalone SAA (steel blue) across the full "
         "2003–2026 window. Grey bands mark major drawdown episodes.", S["body_small"]))
-    story.append(_center_image(inputs["figures"]["cumgrowth"], max_width=fw, max_height=6.0 * cm))
-    story.append(Spacer(1, 0.05 * cm))
+    story.append(_safe_image(inputs["figures"]["cumgrowth"], CONTENT_W, full_chart_h, S))
+    story.append(_chart_caption(
+        "Figure 3: Cumulative portfolio growth indexed to 100, January 2003-April 2026, net of "
+        "5 bps round-trip costs.",
+        S))
+    story.append(Spacer(1, 0.1 * cm))
 
-    story.append(Paragraph("Drawdown Analysis", S["h1"]))
-    story.append(_center_image(inputs["figures"]["drawdown"], max_width=fw, max_height=6.0 * cm))
+    _section_heading(story, "Drawdown Analysis", S)
     story.append(Paragraph(
         f"Peak-to-trough drawdowns. SAA+TAA (navy): {_fmt_pct(taa['max_drawdown'])} maximum loss. "
         f"Benchmark 2: {_fmt_pct(bm2['max_drawdown'])}. Benchmark 1: {_fmt_pct(bm1['max_drawdown'])}. "
-        "Red shading highlights IPS threshold breaches.", S["caption"]))
+        "Red shading highlights IPS threshold breaches.", S["body_small"]))
+    story.append(_safe_image(inputs["figures"]["drawdown"], CONTENT_W, full_chart_h, S))
+    story.append(_chart_caption(
+        "Figure 4: Peak-to-trough drawdowns versus the IPS -25% maximum drawdown limit.",
+        S))
 
-    story.append(Spacer(1, 0.05 * cm))
-    story.append(Paragraph("Rolling 12-Month Return Comparison", S["h1"]))
-    story.append(_center_image(inputs["figures"]["rolling_12m"], max_width=fw, max_height=6.0 * cm))
+    story.append(Spacer(1, 0.1 * cm))
+    _section_heading(story, "Rolling 12-Month Return Comparison", S)
     story.append(Paragraph(
         "252-day rolling annualized returns demonstrate consistency of outperformance. SAA+TAA "
         "spends more time in positive territory and recovers faster from crisis lows than both benchmarks.",
-        S["caption"]))
+        S["body_small"]))
+    story.append(_safe_image(inputs["figures"]["rolling_12m"], CONTENT_W, full_chart_h, S))
+    story.append(_chart_caption(
+        "Figure 5: Rolling 252-day annualized returns for SAA+TAA, SAA, BM1, and BM2.",
+        S))
 
     # PAGE 7 - WEIGHTS + REGIME
-    story.append(Spacer(1, 0.05 * cm))
-    story.append(Paragraph("TAA Weight Allocation Over Time", S["h1"]))
-    story.append(_center_image(inputs["figures"]["weights"], max_width=fw, max_height=6.5 * cm))
+    story.append(Spacer(1, 0.1 * cm))
+    _section_heading(story, "TAA Weight Allocation Over Time", S)
     story.append(Paragraph(
         "Monthly TAA target weights. Green and blue bands at the bottom: fixed-income (Treasuries, "
         "TIPS). Red and orange bands: equity and REIT exposure. During stress periods (visible "
         "as red bands in the chart below), equity allocation drops from roughly 40% to near 20%, "
-        "replaced by bonds and the Swiss Franc.", S["caption"]))
+        "replaced by bonds and the Swiss Franc.", S["body_small"]))
+    story.append(_safe_image(inputs["figures"]["weights"], CONTENT_W, full_chart_h, S))
+    story.append(_chart_caption(
+        "Figure 6: Monthly TAA target weights over time by asset sleeve and tactical allocation.",
+        S))
 
-    story.append(Spacer(1, 0.05 * cm))
-    story.append(Paragraph("HMM Regime Detection", S["h1"]))
-    story.append(_center_image(inputs["figures"]["regime"], max_width=fw, max_height=6.5 * cm))
+    story.append(Spacer(1, 0.1 * cm))
+    _section_heading(story, "HMM Regime Detection", S)
     story.append(Paragraph(
         "HMM regime shading: risk-on (green), neutral (yellow), stress (red). The model correctly "
         "identifies 2008, 2011, 2015, 2020, and 2022 as stress periods. Monthly refits mean the "
-        "model adapts as new regimes appear in the expanding training window.", S["caption"]))
+        "model adapts as new regimes appear in the expanding training window.", S["body_small"]))
+    story.append(_safe_image(inputs["figures"]["regime"], CONTENT_W, full_chart_h, S))
+    story.append(_chart_caption(
+        "Figure 7: HMM regime classification with risk-on, neutral, and stress periods.",
+        S))
 
     # PAGE 8 - WALK-FORWARD FOLDS + ATTRIBUTION
-    story.append(PageBreak())
-    story.append(Paragraph("Walk-Forward Fold Structure", S["h1"]))
-    story.append(_center_image(inputs["figures"]["folds"], max_width=fw, max_height=4.0 * cm))
+    story.append(Spacer(1, 0.1 * cm))
+    _section_heading(story, "Walk-Forward Fold Structure", S)
     story.append(Paragraph(
         "Five expanding walk-forward folds. Grey bars: training window. Gold bars: 21-day embargo. "
-        "Navy bars: out-of-sample test period.", S["caption"]))
-
-    story.append(Spacer(1, 0.08 * cm))
-    story.append(Paragraph("Per-Fold Sharpe Comparison", S["h2"]))
-    story.append(_center_image(inputs["figures"]["per_fold"], max_width=fw, max_height=4.5 * cm))
-    story.append(Paragraph(
-        "Grouped Sharpe ratios by fold show SAA+TAA outperforming both benchmarks in every fold except "
-        "Fold 2 (GFC), where all portfolios suffered but SAA+TAA still preserved relative capital.",
-        S["caption"]))
+        "Navy bars: out-of-sample test period.", S["body_small"]))
+    story.append(_safe_image(inputs["figures"]["folds"], CONTENT_W, full_chart_h, S))
+    story.append(_chart_caption(
+        "Figure 8: Walk-forward expanding-window fold structure with 21-day embargo periods.",
+        S))
 
     story.append(Spacer(1, 0.12 * cm))
-    story.append(Paragraph("SAA and TAA Contribution", S["h1"]))
+    _section_heading(story, "SAA and TAA Contribution", S)
     story.append(Paragraph(
         "The table below breaks out what each layer contributes independently. The SAA column "
         "shows the annualized return, volatility, and drawdown of the minimum-variance portfolio "
@@ -843,7 +1105,8 @@ def build_report(
          f"-{saa_c - taa_soft - taa_hard}",
          str(taa_soft + taa_hard)],
     ]
-    story.append(_df_table(pd.DataFrame(contrib_data[1:], columns=contrib_data[0]), max_rows=8))
+    story.append(_df_table(pd.DataFrame(contrib_data[1:], columns=contrib_data[0]), max_rows=8,
+                           available_width=CONTENT_W, col_widths=saa_contrib_widths))
 
     story.append(Spacer(1, 0.1 * cm))
     story.append(Paragraph(
@@ -886,8 +1149,7 @@ def build_report(
         S["body_small"]))
 
     story.append(Spacer(1, 0.12 * cm))
-    story.append(Paragraph("Signal Attribution (Leave-One-Out OOS Reruns)", S["h1"]))
-    story.append(_center_image(inputs["figures"]["attribution"], max_width=14.8 * cm, max_height=6.5 * cm))
+    _section_heading(story, "Signal Attribution (Leave-One-Out OOS Reruns)", S)
     story.append(Paragraph(
         "Each bar shows the change in out-of-sample Sharpe when one signal is removed and the "
         "remaining four signals are retrained and retested from scratch. This is not a regression "
@@ -896,11 +1158,15 @@ def build_report(
         "consistently across all folds. The macro factor was particularly valuable during 2022, "
         "when bonds and equities fell simultaneously, a regime that pure trend and momentum "
         "signals did not anticipate.",
-        S["caption"]))
+        S["body_small"]))
+    story.append(_safe_image(inputs["figures"]["attribution"], CONTENT_W, medium_chart_h, S))
+    story.append(_chart_caption(
+        "Figure 9: Leave-one-out signal attribution measured by change in out-of-sample Sharpe.",
+        S))
 
     # PAGE 9 - IPS COMPLIANCE
     story.append(Spacer(1, 0.1 * cm))
-    story.append(Paragraph("IPS Compliance Audit", S["h1"]))
+    _section_heading(story, "IPS Compliance Audit", S)
 
     story.append(Paragraph(
         "The portfolio satisfied every IPS hard constraint across the full 6,901-day backtest. "
@@ -919,7 +1185,7 @@ def build_report(
         ["Fully Invested", "100%, no cash", "Sum to 1.0", "Pass"],
     ]
     story.append(_df_table(pd.DataFrame(comp_data[1:], columns=comp_data[0]), max_rows=7,
-                           first_col_ratio=2.0))
+                           available_width=CONTENT_W, col_widths=ips_widths))
 
     story.append(Spacer(1, 0.1 * cm))
     story.append(Paragraph(
@@ -936,14 +1202,6 @@ def build_report(
         f"and {taa_hard} hard violations. No aggregate cap was breached on any date.", S["body_small"]))
 
     # PAGE 10 - RECOMMENDATION
-    story.append(Spacer(1, 0.15 * cm))
-    story.append(Paragraph("Recommendation", S["h1"]))
-
-    story.append(Paragraph(
-        "We recommend that Whitmore Capital Partners adopt the SAA+TAA portfolio as the live "
-        "policy allocation. Our specific recommendations are:",
-        S["body"]))
-
     recs = [
         "Use minimum-variance optimization for the annual SAA rebalance, constrained by "
         "the IPS bands in Section 5 and the aggregate caps in Section 7.",
@@ -958,49 +1216,111 @@ def build_report(
         "Conduct a full IPS review annually per Section 10.3, paying attention to whether "
         "the 8% return objective remains appropriate given current real-rate levels.",
     ]
-    for r in recs:
-        story.append(Paragraph(r, S["bullet"]))
-
-    # 1.6 — conditional recommendation
-    story.append(Spacer(1, 0.1 * cm))
-    story.append(Paragraph("Conditional Adoption Guidance", S["h2"]))
-    story.append(Paragraph(
-        "The overlay is least likely to add value in two environments: (a) prolonged range-bound, "
-        "low-volatility markets where trend signals generate whipsaw losses, and (b) rapid flash-crash "
-        "reversals that last hours or days—too short for any monthly signal to react. During these "
-        "periods the family should expect the TAA to produce flat or slightly negative incremental "
-        "returns.",
-        S["body_small"]))
-    story.append(Paragraph(
-        "We propose a formal re-evaluation trigger: if the rolling 12-month TAA net alpha (after costs) "
-        "falls below 50 basis points for two consecutive years, Whitmore should convene a formal signal "
-        "review. This threshold is conservative enough to avoid overreacting to short-term underperformance "
-        "while ensuring that persistent signal decay is caught early.",
-        S["body_small"]))
-    story.append(Paragraph(
-        "Finally, an honest note on the 8% return objective: with 10-year TIPS real yields near 2% "
-        "in 2024–2026, achieving 8% per year requires either sustained equity risk premia near historical "
-        "averages or successful tactical timing. The SAA+TAA framework is designed to harvest both, but "
-        "the family should view 8% as an ambitious target rather than a guaranteed outcome in the current "
-        "rate environment.",
-        S["body_small"]))
-
-    story.append(Paragraph(
-        "We want to be direct about risk. The strategy will lose money in some months. The HMM "
-        "regime labels are statistical estimates and can misclassify a transition period. The "
-        "maximum drawdown of -21.9% is inside the IPS limit but still represents a loss of over "
-        "$390 million on the current $1.8 billion asset base. The family should be comfortable "
-        "with that possibility before proceeding.",
-        S["body_small"]))
+    rec_box_style = TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#EEF1F7")),
+        ("BOX", (0, 0), (-1, -1), 2.0, COL_NAVY),
+        ("LINEABOVE", (0, 0), (-1, 0), 4.0, COL_GOLD),
+        ("TOPPADDING", (0, 0), (-1, -1), 14),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 14),
+        ("LEFTPADDING", (0, 0), (-1, -1), 16),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 16),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+    ])
+    rec_header_style = ParagraphStyle(
+        "rec_header",
+        fontName=BASE_FONT_BOLD,
+        fontSize=13,
+        leading=17,
+        textColor=COL_NAVY,
+        spaceAfter=6,
+        spaceBefore=0,
+        keepWithNext=1,
+    )
+    rec_body_style = ParagraphStyle(
+        "rec_body",
+        fontName=BASE_FONT,
+        fontSize=9,
+        leading=13,
+        textColor=COL_NAVY,
+        spaceAfter=4,
+        spaceBefore=0,
+        alignment=TA_JUSTIFY,
+        wordWrap="LTR",
+        allowWidows=0,
+        allowOrphans=0,
+        keepWithPrevious=1,
+    )
+    rec_bullet_style = ParagraphStyle(
+        "rec_bullet",
+        fontName=BASE_FONT,
+        fontSize=9,
+        leading=13,
+        textColor=COL_NAVY,
+        leftIndent=12,
+        bulletIndent=0,
+        spaceAfter=3,
+        spaceBefore=0,
+        alignment=TA_JUSTIFY,
+        wordWrap="LTR",
+        allowWidows=0,
+        allowOrphans=0,
+        keepWithPrevious=1,
+    )
+    rec_content = [
+        Paragraph("&#9654; Investment Recommendation", rec_header_style),
+        Paragraph(
+            "We recommend that Whitmore Capital Partners adopt the SAA+TAA portfolio as the live "
+            "policy allocation. Our specific recommendations are:",
+            rec_body_style),
+    ]
+    rec_content.extend(Paragraph(f"&#8226; {r}", rec_bullet_style) for r in recs)
+    rec_content.extend([
+        Paragraph("Conditional Adoption Guidance", rec_header_style),
+        Paragraph(
+            "The overlay is least likely to add value in two environments: (a) prolonged range-bound, "
+            "low-volatility markets where trend signals generate whipsaw losses, and (b) rapid flash-crash "
+            "reversals that last hours or days—too short for any monthly signal to react. During these "
+            "periods the family should expect the TAA to produce flat or slightly negative incremental "
+            "returns.",
+            rec_body_style),
+        Paragraph(
+            "We propose a formal re-evaluation trigger: if the rolling 12-month TAA net alpha (after costs) "
+            "falls below 50 basis points for two consecutive years, Whitmore should convene a formal signal "
+            "review. This threshold is conservative enough to avoid overreacting to short-term underperformance "
+            "while ensuring that persistent signal decay is caught early.",
+            rec_body_style),
+        Paragraph(
+            "Finally, an honest note on the 8% return objective: with 10-year TIPS real yields near 2% "
+            "in 2024–2026, achieving 8% per year requires either sustained equity risk premia near historical "
+            "averages or successful tactical timing. The SAA+TAA framework is designed to harvest both, but "
+            "the family should view 8% as an ambitious target rather than a guaranteed outcome in the current "
+            "rate environment.",
+            rec_body_style),
+        Paragraph(
+            "We want to be direct about risk. The strategy will lose money in some months. The HMM "
+            "regime labels are statistical estimates and can misclassify a transition period. The "
+            "maximum drawdown of -21.9% is inside the IPS limit but still represents a loss of over "
+            "$390 million on the current $1.8 billion asset base. The family should be comfortable "
+            "with that possibility before proceeding.",
+            rec_body_style),
+    ])
+    rec_box = Table([[rec_content]], colWidths=[CONTENT_W], hAlign="LEFT")
+    rec_box.setStyle(rec_box_style)
+    story.append(Spacer(1, 0.3 * cm))
+    story.append(rec_box)
+    story.append(Spacer(1, 0.2 * cm))
 
     # BUILD
     # body_frame: top sits at PAGE_H - 2.0 cm, giving 0.55 cm clearance below the
     # header text at PAGE_H - 1.45 cm.  (frame top = y_bottom + height)
-    body_frame = Frame(1.4 * cm, 1.5 * cm, PAGE_W - 2.8 * cm, PAGE_H - 3.5 * cm, id="body_frame")
+    body_frame = Frame(left_margin, bottom_margin, CONTENT_W,
+                       PAGE_H - top_margin - bottom_margin, id="content")
     # title_frame: no header, so the frame can extend closer to the top.
-    title_frame = Frame(1.4 * cm, 1.5 * cm, PAGE_W - 2.8 * cm, PAGE_H - 3.0 * cm, id="title_frame")
-    title_template = PageTemplate(id="title", frames=title_frame, onPage=_title_page_header)
-    body_template = PageTemplate(id="body", frames=body_frame, onPage=_header_footer)
+    title_frame = Frame(left_margin, bottom_margin, CONTENT_W,
+                        PAGE_H - 3.0 * cm, id="title_frame")
+    title_template = PageTemplate(id="title", frames=title_frame, onPage=_title_page_header,
+                                  autoNextPageTemplate="content")
+    body_template = PageTemplate(id="content", frames=[body_frame], onPage=_header_footer)
 
     doc = BaseDocTemplate(
         str(report_dir / REPORT_PDF_FILENAME),

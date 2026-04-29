@@ -204,6 +204,7 @@ def _run_signal_ablations(
         "no_regime": replace(base_config, regime_weight=0.0),
         "no_trend": replace(base_config, trend_weight=0.0),
         "no_momo": replace(base_config, momo_weight=0.0),
+        "no_macro": replace(base_config, macro_factor_weight=0.0),
     }
 
     rows = []

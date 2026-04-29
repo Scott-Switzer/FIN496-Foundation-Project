@@ -2241,36 +2241,48 @@ def _save_signal_pipeline_swimlane_figure(figure_dir: Path) -> Path:
         _arrow(3.8, y_base, 4.4, y_base)
         _arrow(5.9, y_base, 6.5, y_base)
 
-    # Ensemble blender
-    _box(8.3, 4.0, 1.8, 2.0, "ENSEMBLE\nBLENDER\n(weighted sum)", "#1A365D", fontsize=9)
-    for y_base in [8.8, 7.0, 5.2, 3.4, 1.6]:
-        _arrow(7.8, y_base, 8.3, 5.0)
+    # Ensemble blender — wider to hold weight labels inside
+    blender_x, blender_y, blender_w, blender_h = 8.1, 3.6, 2.2, 2.8
+    _box(blender_x, blender_y, blender_w, blender_h,
+         "ENSEMBLE\nBLENDER", "#1A365D", fontsize=10)
 
-    # Scale / Weights annotation
-    ax.text(9.2, 6.8, "20%\n×0.10", fontsize=7, color="#1f3f6e", fontweight="bold", ha="left")
-    ax.text(9.2, 6.0, "25%\n×0.06", fontsize=7, color="#c9a227", fontweight="bold", ha="left")
-    ax.text(9.2, 5.2, "25%\n×0.06", fontsize=7, color="#4a90d9", fontweight="bold", ha="left")
-    ax.text(9.2, 4.4, "10%\n×1.0", fontsize=7, color="#6b7280", fontweight="bold", ha="left")
-    ax.text(9.2, 3.6, "15%\n×0.20", fontsize=7, color="#059669", fontweight="bold", ha="left")
+    # Weight labels stacked inside the blender box (left-aligned, clean)
+    weight_lines = [
+        ("20% × 0.10", "#1f3f6e", 0.85),
+        ("25% × 0.06", "#c9a227", 0.55),
+        ("25% × 0.06", "#4a90d9", 0.25),
+        ("10% × 1.00", "#6b7280", -0.05),
+        ("15% × 0.20", "#059669", -0.35),
+    ]
+    for text, color, dy in weight_lines:
+        ax.text(blender_x + 0.12, blender_y + blender_h / 2 + dy, text,
+                fontsize=7.5, color=color, fontweight="bold", ha="left", va="center")
+
+    # Arrows from output boxes into blender (each points to its matching height on blender left)
+    arrow_targets = [8.8, 7.0, 5.2, 3.4, 1.6]
+    for y_base in arrow_targets:
+        _arrow(7.8, y_base, blender_x, 5.0)
 
     # Optimizer
-    _box(10.2, 4.2, 1.8, 1.6, "cvxpy\nOptimizer\n(max μ'w − λw'Σw\n− cost|Δw|)", "#2D3748", fontsize=8)
-    _arrow(10.1, 5.0, 10.2, 5.0)
+    optimizer_x = 10.8
+    _box(optimizer_x, 4.2, 1.8, 1.6,
+         "cvxpy\nOptimizer\n(max μ'w − λw'Σw\n− cost|Δw|)", "#2D3748", fontsize=8)
+    _arrow(blender_x + blender_w, 5.0, optimizer_x, 5.0)
 
     # Constraints annotation
-    ax.text(10.3, 3.9, "Subject to: IPS bands, sleeve caps,\nvol budget (8/12/14%), no shorts",
+    ax.text(optimizer_x + 0.05, 3.9, "Subject to: IPS bands, sleeve caps,\nvol budget (8/12/14%), no shorts",
             fontsize=6.5, color="#4A5568", ha="left", va="top")
 
     # Output
-    _box(12.4, 4.4, 1.3, 1.2, "NEW\nPORTFOLIO\nWEIGHTS", "#1A365D", fontsize=9)
-    _arrow(12.0, 5.0, 12.4, 5.0)
+    _box(12.8, 4.4, 1.3, 1.2, "NEW\nPORTFOLIO\nWEIGHTS", "#1A365D", fontsize=9)
+    _arrow(optimizer_x + 1.8, 5.0, 12.8, 5.0)
 
     # Hold period
-    _box(12.4, 2.2, 1.3, 0.9, "HOLD\n1 MONTH\n(drift)", "#718096", fontsize=8)
-    _arrow(13.05, 4.4, 13.05, 3.1)
+    _box(12.8, 2.2, 1.3, 0.9, "HOLD\n1 MONTH\n(drift)", "#718096", fontsize=8)
+    _arrow(13.45, 4.4, 13.45, 3.1)
 
     # Loop back
-    ax.annotate("", xy=(1.0, 2.65), xytext=(13.05, 2.65),
+    ax.annotate("", xy=(1.0, 2.65), xytext=(13.45, 2.65),
                 arrowprops=dict(arrowstyle="->", color="#A0AEC0", lw=1.0,
                                 connectionstyle="arc3,rad=-0.3"), zorder=1)
     ax.text(7.0, 1.4, "Next month-end rebalance", fontsize=7.5, color="#A0AEC0",

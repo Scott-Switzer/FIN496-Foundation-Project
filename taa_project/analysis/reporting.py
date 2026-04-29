@@ -29,8 +29,13 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib-codex")
 
@@ -39,6 +44,7 @@ import matplotlib
 matplotlib.use("Agg")
 
 import matplotlib.dates
+import matplotlib.ticker as mticker
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -1155,10 +1161,10 @@ def refresh_dsr_disclosure(
 
 
 _PORTFOLIO_COLORS = {
-    "SAA+TAA": "#1f3f6e",  # navy — colorblind-friendly
-    "BM2":     "#c9a227",  # gold
-    "SAA":     "#4a90d9",  # steel blue
-    "BM1":     "#6b7280",  # slate grey
+    "SAA+TAA": "#1B2A4A",  # navy
+    "BM2":     "#C9A227",  # gold
+    "SAA":     "#4A7FB5",  # steel blue
+    "BM1":     "#6B7280",  # slate grey
 }
 
 _PORTFOLIO_ORDER = ["SAA+TAA", "BM2", "SAA", "BM1"]
@@ -1180,35 +1186,35 @@ _PORTFOLIO_LS = {
 
 def _apply_whitmore_theme() -> None:
     plt.rcParams.update({
-        "figure.facecolor":      "#FFFFFF",
-        "savefig.facecolor":     "#FFFFFF",
-        "axes.facecolor":        "#F8FAFC",
-        "axes.edgecolor":        "#CBD5E0",
+        "figure.facecolor":      "#FAFAF7",
+        "savefig.facecolor":     "#FAFAF7",
+        "axes.facecolor":        "#FAFAF7",
+        "axes.edgecolor":        "#CCCCCC",
         "axes.linewidth":        0.8,
         "axes.grid":             True,
         "axes.grid.axis":        "y",
-        "grid.color":            "#E2E8F0",
-        "grid.linewidth":        0.55,
-        "grid.linestyle":        ":",
+        "grid.color":            "#CCCCCC",
+        "grid.linewidth":        0.4,
+        "grid.linestyle":        "--",
         "axes.spines.top":       False,
         "axes.spines.right":     False,
-        "xtick.color":           "#4A5568",
-        "ytick.color":           "#4A5568",
-        "xtick.labelsize":       8.5,
-        "ytick.labelsize":       8.5,
+        "xtick.color":           "#1B2A4A",
+        "ytick.color":           "#1B2A4A",
+        "xtick.labelsize":       7,
+        "ytick.labelsize":       7,
         "xtick.major.size":      0,
         "ytick.major.size":      0,
-        "axes.labelsize":        9.0,
-        "axes.labelcolor":       "#2D3748",
+        "axes.labelsize":        8.0,
+        "axes.labelcolor":       "#1B2A4A",
         "axes.labelpad":         7,
         "axes.titlesize":        11.5,
         "axes.titleweight":      "bold",
-        "axes.titlecolor":       "#1A365D",
+        "axes.titlecolor":       "#1B2A4A",
         "axes.titlelocation":    "left",
         "axes.titlepad":         12,
         "legend.frameon":        True,
         "legend.framealpha":     0.94,
-        "legend.edgecolor":      "#CBD5E0",
+        "legend.edgecolor":      "#CCCCCC",
         "legend.fontsize":       8.5,
         "legend.title_fontsize": 8.5,
         "font.family":           "sans-serif",
@@ -1224,9 +1230,15 @@ def _style_ax(
     pct_y: bool = False,
     index_y: bool = False,
 ) -> plt.Axes:
-    ax.spines["left"].set_color("#CBD5E0")
-    ax.spines["bottom"].set_color("#CBD5E0")
-    ax.tick_params(axis="both", which="both", length=0)
+    ax.set_facecolor("#FAFAF7")
+    ax.figure.patch.set_facecolor("#FAFAF7")
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.spines["left"].set_color("#CCCCCC")
+    ax.spines["bottom"].set_color("#CCCCCC")
+    ax.tick_params(axis="both", which="both", length=0, labelsize=7, colors="#1B2A4A")
+    ax.yaxis.grid(True, color="#CCCCCC", linewidth=0.4, linestyle="--", zorder=0)
+    ax.set_axisbelow(True)
     if ylabel:
         ax.set_ylabel(ylabel)
     if xlabel:
@@ -1234,10 +1246,15 @@ def _style_ax(
     if title:
         ax.set_title(title)
     if pct_y:
-        ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{100 * v:.0f}%"))
+        ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: f"{100 * v:.0f}%"))
     if index_y:
-        ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{v:.0f}"))
+        ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: f"{v:.0f}"))
     return ax
+
+
+def _save_chart(fig: plt.Figure, path: Path) -> None:
+    fig.savefig(path, dpi=180, bbox_inches="tight",
+                facecolor="#FAFAF7", edgecolor="none")
 
 
 def _common_plot_window(panels: dict[str, object]) -> pd.Timestamp:
@@ -1296,41 +1313,40 @@ def _save_cumgrowth_figure(panels: dict[str, object], figure_dir: Path) -> Path:
                             where=(growth.values >= 100),
                             color=color, alpha=0.07, zorder=1)
 
-    # 2.1a — major drawdown shaded bands
     crises = [
-        (pd.Timestamp("2002-01-01"), pd.Timestamp("2003-12-31"), "Dot-com recovery"),
-        (pd.Timestamp("2008-09-01"), pd.Timestamp("2009-03-31"), "GFC"),
-        (pd.Timestamp("2020-02-01"), pd.Timestamp("2020-03-31"), "COVID crash"),
-        (pd.Timestamp("2022-01-01"), pd.Timestamp("2022-12-31"), "2022 rate shock"),
+        ("2008-09-01", "2009-03-31", "GFC"),
+        ("2020-02-01", "2020-04-30", "COVID"),
+        ("2022-01-01", "2022-12-31", "2022"),
     ]
     for start, end, label in crises:
-        ax.axvspan(start, end, color="#9CA3AF", alpha=0.18, zorder=0)
-        mid = start + (end - start) / 2
-        ax.text(mid, ax.get_ylim()[1] * 0.98, label, ha="center", va="top",
-                fontsize=7.5, color="#4B5563", fontweight="bold", zorder=5)
+        start_ts = pd.Timestamp(start)
+        end_ts = pd.Timestamp(end)
+        ax.axvspan(start_ts, end_ts, alpha=0.08, color="grey", zorder=0)
+        mid = start_ts + (end_ts - start_ts) / 2
+        ax.text(mid, ax.get_ylim()[1] * 0.97, label,
+                ha="center", fontsize=6, color="grey", style="italic", zorder=5)
 
-    # 2.1b — final value annotations
     for label in ordered_labels + other_labels:
         returns = panels["returns"][label]
         growth = cumulative_growth_index(returns.loc[common_start:])
         if not growth.empty:
             final_val = growth.iloc[-1]
-            ax.annotate(f"{label}: {final_val:.0f}",
+            ax.annotate(f"{label}\n{final_val:.0f}",
                         xy=(growth.index[-1], final_val),
                         xytext=(8, 0), textcoords="offset points",
-                        fontsize=8, color=_PORTFOLIO_COLORS.get(label, "#718096"),
-                        fontweight="bold", va="center", zorder=6)
+                        fontsize=6.5, color=_PORTFOLIO_COLORS.get(label, "#6B7280"),
+                        va="center", zorder=6)
 
-    # 2.1d — title, subtitle, source
     ax.set_title("Cumulative Growth  ·  All Portfolios Indexed to 100", loc="left", pad=12)
     ax.text(0.0, -0.12, "Net of 5 bps round-trip transaction costs. Walk-forward OOS, Jan 2003 – Apr 2026.",
             transform=ax.transAxes, fontsize=7.5, color="#718096", ha="left")
-    _style_ax(ax, ylabel="Index (100 = start)", index_y=True)
-    ax.axhline(100, color="#CBD5E0", linewidth=0.8, linestyle="-", zorder=0)
+    _style_ax(ax, ylabel="Portfolio Value (Index = 100)", index_y=True)
+    ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{x:.0f}"))
+    ax.axhline(100, color="#CCCCCC", linewidth=0.8, linestyle="-", zorder=0)
     ax.legend(loc="upper left")
     fig.tight_layout()
     path = figure_dir / FIGURE_FILENAMES["cumgrowth"]
-    fig.savefig(path, dpi=220)
+    _save_chart(fig, path)
     plt.close(fig)
     return path
 
@@ -1358,9 +1374,11 @@ def _save_drawdown_figure(panels: dict[str, object], figure_dir: Path) -> Path:
 
     ordered_labels = [lbl for lbl in _PORTFOLIO_ORDER if lbl in panels["returns"]]
     other_labels = [lbl for lbl in panels["returns"] if lbl not in ordered_labels]
+    drawdowns: dict[str, pd.Series] = {}
     for label in ordered_labels + other_labels:
         returns = panels["returns"][label]
         dd = drawdown_curve(returns.loc[common_start:])
+        drawdowns[label] = dd
         color = _PORTFOLIO_COLORS.get(label, "#718096")
         lw = _PORTFOLIO_LW.get(label, 1.8)
         ls = _PORTFOLIO_LS.get(label, "-")
@@ -1368,33 +1386,37 @@ def _save_drawdown_figure(panels: dict[str, object], figure_dir: Path) -> Path:
         if label == "SAA+TAA":
             ax.fill_between(dd.index, dd.values, 0, color=color, alpha=0.08, zorder=1)
 
-    # 2.2a — horizontal dashed red line at -25%
-    ax.axhline(-MAX_DD, color="#C53030", linewidth=1.2, linestyle="--", zorder=2,
-               label=f"IPS MDD limit ({100 * MAX_DD:.0f}%)")
-    # 2.2b — shade area below -25%
-    ax.fill_between(ax.get_xlim(), -1.0, -MAX_DD, color="#FED7D7", alpha=0.35,
-                    zorder=0, transform=ax.get_yaxis_transform())
-    ax.axhline(0, color="#CBD5E0", linewidth=0.8, zorder=0)
+    if drawdowns:
+        all_min = min(series.min() for series in drawdowns.values() if not series.empty)
+        y_lower = all_min * 1.20
+        y_lower = max(y_lower, -0.45)
+        ax.set_ylim(y_lower, 0.02)
 
-    # 2.2c — label maximum drawdown point for each portfolio
-    for label in ordered_labels + other_labels:
-        returns = panels["returns"][label]
-        dd = drawdown_curve(returns.loc[common_start:])
-        if not dd.empty:
-            min_dd = dd.min()
-            min_date = dd.idxmin()
-            ax.annotate(f"{min_date.strftime('%b %Y')}\n{min_dd:.1%}",
-                        xy=(min_date, min_dd),
-                        xytext=(10, -15), textcoords="offset points",
-                        fontsize=7.5, color=_PORTFOLIO_COLORS.get(label, "#718096"),
-                        fontweight="bold", va="top",
-                        arrowprops=dict(arrowstyle="->", color=_PORTFOLIO_COLORS.get(label, "#718096"), lw=0.8))
+    ax.axhline(-0.25, color="#C0392B", linewidth=1.2,
+               linestyle="--", label="IPS Limit (-25%)", zorder=5)
+    ax.axhspan(-0.45, -0.25, alpha=0.06, color="#C0392B", zorder=1)
+    ax.axhline(0, color="#CCCCCC", linewidth=0.8, zorder=0)
+
+    drawdown_saa_taa = drawdowns.get("SAA+TAA", pd.Series(dtype=float))
+    if not drawdown_saa_taa.empty:
+        min_idx = drawdown_saa_taa.idxmin()
+        min_val = drawdown_saa_taa.min()
+        ax.annotate(
+            f"SAA+TAA\n{min_val:.1%}",
+            xy=(min_idx, min_val),
+            xytext=(min_idx, min_val - 0.03),
+            fontsize=6.5,
+            color="#1B2A4A",
+            ha="center",
+            arrowprops=dict(arrowstyle="->", color="#1B2A4A", lw=0.8),
+        )
 
     _style_ax(ax, ylabel="Drawdown", title="Underwater Curves  ·  Peak-to-Trough Loss", pct_y=True)
+    ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{x:.0%}"))
     ax.legend(loc="lower left")
     fig.tight_layout()
     path = figure_dir / FIGURE_FILENAMES["drawdown"]
-    fig.savefig(path, dpi=220)
+    _save_chart(fig, path)
     plt.close(fig)
     return path
 
@@ -1433,14 +1455,14 @@ def _save_rolling_12m_returns_figure(panels: dict[str, object], figure_dir: Path
         ax.plot(rolling.index, rolling.values * 100, label=label, color=color,
                 linewidth=lw, linestyle=ls, zorder=3)
 
-    ax.axhline(0, color="#CBD5E0", linewidth=0.8, zorder=0)
+    ax.axhline(0, color="#CCCCCC", linewidth=0.8, zorder=0)
     _style_ax(ax, ylabel="Rolling 12-Month Return (%)",
               title="Rolling 12-Month Annualized Return  ·  252-Day Window")
-    ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{v:.0f}%"))
+    ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: f"{v:.0f}%"))
     ax.legend(loc="upper left")
     fig.tight_layout()
     path = figure_dir / "fig19_rolling_12m_returns.png"
-    fig.savefig(path, dpi=220)
+    _save_chart(fig, path)
     plt.close(fig)
     return path
 
@@ -1488,7 +1510,7 @@ def _save_rolling_vol_figure(panels: dict[str, object], figure_dir: Path) -> Pat
     ax.legend(loc="upper left")
     fig.tight_layout()
     path = figure_dir / FIGURE_FILENAMES["rolling_vol"]
-    fig.savefig(path, dpi=220)
+    _save_chart(fig, path)
     plt.close(fig)
     return path
 
@@ -1563,16 +1585,12 @@ def _save_taa_weights_figure(panels: dict[str, object], figure_dir: Path) -> Pat
         alpha=0.92,
     )
     ax.set_ylim(0.0, 1.0)
-    ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{100 * v:.0f}%"))
-    ax.spines["left"].set_color("#CBD5E0")
-    ax.spines["bottom"].set_color("#CBD5E0")
-    ax.tick_params(length=0)
-    ax.set_title("TAA Target Weights by Sleeve")
-    ax.set_ylabel("Allocation")
+    ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: f"{100 * v:.0f}%"))
+    _style_ax(ax, ylabel="Allocation", title="TAA Target Weights by Sleeve")
     ax.legend(handles=legend_patches, loc="upper right", title="Sleeve")
     fig.tight_layout()
     path = figure_dir / FIGURE_FILENAMES["taa_weights"]
-    fig.savefig(path, dpi=220)
+    _save_chart(fig, path)
     plt.close(fig)
     return path
 
@@ -1596,9 +1614,9 @@ def _save_regime_shading_figure(panels: dict[str, object], figure_dir: Path) -> 
 
     _apply_whitmore_theme()
     regime_colors = {
-        "risk_on": "#C6F6D5",
-        "neutral": "#FEFCBF",
-        "stress":  "#FED7D7",
+        "risk_on": "#27AE60",
+        "neutral": "#F1C40F",
+        "stress":  "#C0392B",
     }
     regime_labels_display = {
         "risk_on": "Risk-On",
@@ -1623,7 +1641,7 @@ def _save_regime_shading_figure(panels: dict[str, object], figure_dir: Path) -> 
                 lbl = regime_labels_display.get(current_regime, current_regime) if current_regime not in seen_regimes else None
                 ax.axvspan(block_start, date,
                            color=regime_colors.get(current_regime, "#E5E7EB"),
-                           alpha=0.45, zorder=1, label=lbl)
+                           alpha=0.4, zorder=1, label=lbl)
                 seen_regimes.add(current_regime)
             current_regime = regime
             block_start = date
@@ -1631,7 +1649,7 @@ def _save_regime_shading_figure(panels: dict[str, object], figure_dir: Path) -> 
         lbl = regime_labels_display.get(current_regime, current_regime) if current_regime not in seen_regimes else None
         ax.axvspan(block_start, regime_series.index.max(),
                    color=regime_colors.get(current_regime, "#E5E7EB"),
-                   alpha=0.45, zorder=1, label=lbl)
+                   alpha=0.4, zorder=1, label=lbl)
 
     for label in plot_labels:
         returns = panels["returns"][label]
@@ -1643,10 +1661,25 @@ def _save_regime_shading_figure(panels: dict[str, object], figure_dir: Path) -> 
                 label=label, zorder=4)
 
     _style_ax(ax, ylabel="Index (100 = start)", title="Cumulative Growth  ·  HMM Regime Shading", index_y=True)
-    ax.legend(loc="upper left")
+    legend_elements = [
+        Patch(facecolor="#27AE60", alpha=0.5, label="Risk-On"),
+        Patch(facecolor="#F1C40F", alpha=0.5, label="Neutral"),
+        Patch(facecolor="#C0392B", alpha=0.5, label="Stress"),
+    ]
+    ax.legend(handles=legend_elements, loc="upper right", fontsize=7,
+              framealpha=0.9, edgecolor="#CCCCCC", ncol=3)
+    stress_labels = [
+        ("2008-09-15", "GFC"),
+        ("2020-03-01", "COVID"),
+        ("2022-06-01", "2022\nRate Shock"),
+    ]
+    for date_str, label in stress_labels:
+        ax.text(pd.Timestamp(date_str), ax.get_ylim()[1] * 0.85,
+                label, ha="center", fontsize=6.5,
+                color="#C0392B", fontweight="bold")
     fig.tight_layout()
     path = figure_dir / FIGURE_FILENAMES["regime_shading"]
-    fig.savefig(path, dpi=220)
+    _save_chart(fig, path)
     plt.close(fig)
     return path
 
@@ -1691,10 +1724,8 @@ def _save_fold_figure(panels: dict[str, object], figure_dir: Path) -> Path:
     ax.set_yticklabels([f"Fold {int(row['fold_id'])}" for _, row in folds.iterrows()])
     ax.xaxis.set_major_locator(matplotlib.dates.YearLocator(2))
     ax.xaxis.set_major_formatter(matplotlib.dates.DateFormatter("%Y"))
+    _style_ax(ax, title="Walk-Forward OOS Fold Structure")
     ax.spines["left"].set_visible(False)
-    ax.spines["bottom"].set_color("#CBD5E0")
-    ax.tick_params(length=0)
-    ax.set_title("Walk-Forward OOS Fold Structure")
     legend_patches = [
         Patch(facecolor=train_color,   label="Train"),
         Patch(facecolor=embargo_color, label="Embargo"),
@@ -1703,7 +1734,7 @@ def _save_fold_figure(panels: dict[str, object], figure_dir: Path) -> Path:
     ax.legend(handles=legend_patches, loc="lower right")
     fig.tight_layout()
     path = figure_dir / FIGURE_FILENAMES["oos_folds"]
-    fig.savefig(path, dpi=220)
+    _save_chart(fig, path)
     plt.close(fig)
     return path
 
@@ -1727,26 +1758,21 @@ def _save_attribution_figure(per_signal: pd.DataFrame, figure_dir: Path) -> Path
 
     _apply_whitmore_theme()
     plot_df = per_signal.loc[per_signal["layer"] != "baseline"].copy()
-    values = plot_df["marginal_oos_sharpe"].to_numpy(dtype=float)
-    bar_colors = [_PORTFOLIO_COLORS["SAA+TAA"] if v >= 0 else "#C53030" for v in values]
+    plot_df = plot_df.assign(abs_impact=plot_df["marginal_oos_sharpe"].abs())
+    plot_df = plot_df.sort_values("abs_impact", ascending=True)
+    signal_names = plot_df["layer"].to_list()
+    sharpe_deltas = plot_df["marginal_oos_sharpe"].to_numpy(dtype=float)
+    colors_bars = ["#1B2A4A" if v >= 0 else "#C0392B" for v in sharpe_deltas]
 
     fig, ax = plt.subplots(figsize=(9.5, 5.2))
-    bars = ax.bar(plot_df["layer"], values, color=bar_colors, width=0.55, zorder=3,
-                  edgecolor="white", linewidth=0.5)
-    ax.axhline(0.0, color="#CBD5E0", linewidth=0.9, zorder=2)
-
-    for bar, val in zip(bars, values):
-        offset = 0.005 if val >= 0 else -0.005
-        va = "bottom" if val >= 0 else "top"
-        ax.text(bar.get_x() + bar.get_width() / 2, val + offset,
-                f"{val:+.3f}", ha="center", va=va, fontsize=8, color="#2D3748")
-
-    _style_ax(ax, ylabel="ΔSharpe vs. ablated baseline",
+    bars = ax.barh(signal_names, sharpe_deltas, color=colors_bars, zorder=3)
+    ax.bar_label(bars, fmt="%.3f", fontsize=7, padding=3, color="#1B2A4A")
+    ax.axvline(0, color="#CCCCCC", linewidth=0.8)
+    _style_ax(ax, xlabel="Change in OOS Sharpe Ratio",
               title="Signal Attribution  ·  Marginal OOS Sharpe")
-    ax.tick_params(axis="x", labelrotation=15)
     fig.tight_layout()
     path = figure_dir / FIGURE_FILENAMES["attribution"]
-    fig.savefig(path, dpi=220)
+    _save_chart(fig, path)
     plt.close(fig)
     return path
 
@@ -1786,7 +1812,7 @@ def _save_per_fold_figure(per_fold_metrics: pd.DataFrame, panels: dict[str, obje
     bars3 = ax.bar(x + width, bm1_sharpe.reindex(df["fold_id"]).values, width,
                    color=_PORTFOLIO_COLORS["BM1"], label="BM1", zorder=3, edgecolor="white", linewidth=0.5)
 
-    ax.axhline(0, color="#CBD5E0", linewidth=0.8, zorder=0)
+    ax.axhline(0, color="#CCCCCC", linewidth=0.8, zorder=0)
     for bars in (bars1, bars2, bars3):
         for bar in bars:
             height = bar.get_height()
@@ -1800,7 +1826,7 @@ def _save_per_fold_figure(per_fold_metrics: pd.DataFrame, panels: dict[str, obje
     ax.legend(loc="upper left")
     fig.tight_layout()
     path = figure_dir / FIGURE_FILENAMES["per_fold"]
-    fig.savefig(path, dpi=220)
+    _save_chart(fig, path)
     plt.close(fig)
     return path
 
@@ -1819,7 +1845,7 @@ def _save_signal_weight_contribution_figure(figure_dir: Path) -> Path:
         ax.text(0.5, 0.5, "Signal contribution history not available — re-run walkforward to generate.",
                 ha="center", va="center", fontsize=10, color="#718096")
         ax.axis("off")
-        fig.savefig(empty_path, dpi=150, bbox_inches="tight")
+        _save_chart(fig, empty_path)
         plt.close(fig)
         return empty_path
 
@@ -1848,7 +1874,7 @@ def _save_signal_weight_contribution_figure(figure_dir: Path) -> Path:
     ax.legend(loc="upper left", title="Signal")
     fig.tight_layout()
     path = figure_dir / "fig20_signal_weights_stacked.png"
-    fig.savefig(path, dpi=220)
+    _save_chart(fig, path)
     plt.close(fig)
     return path
 
@@ -1870,7 +1896,7 @@ def _save_signal_history_figure(
         fig, ax = plt.subplots(figsize=(12, 2))
         ax.text(0.5, 0.5, "VIX signal history data not available", ha="center", va="center")
         ax.axis("off")
-        fig.savefig(empty_path, dpi=150, bbox_inches="tight")
+        _save_chart(fig, empty_path)
         plt.close(fig)
         return empty_path
 
@@ -1946,7 +1972,7 @@ def _save_signal_history_figure(
     ax3.set_ylabel("Yield Curve Score")
 
     path = figure_dir / FIGURE_FILENAMES["signal_history"]
-    fig.savefig(path, dpi=220)
+    _save_chart(fig, path)
     plt.close(fig)
     return path
 
@@ -1991,7 +2017,7 @@ def _save_contribution_figure(metrics: pd.DataFrame, figure_dir: Path) -> Path:
                  fontsize=11.5, fontweight="bold", color="#1A365D", x=0.02, ha="left", y=1.01)
     fig.tight_layout(w_pad=3.0)
     path = figure_dir / FIGURE_FILENAMES["contribution"]
-    fig.savefig(path, dpi=220, bbox_inches="tight")
+    _save_chart(fig, path)
     plt.close(fig)
     return path
 
@@ -2024,7 +2050,7 @@ def _save_rolling_alpha_figure(panels: dict[str, object], figure_dir: Path) -> P
     ax.legend(loc="upper left")
     fig.tight_layout()
     path = figure_dir / FIGURE_FILENAMES["rolling_alpha"]
-    fig.savefig(path, dpi=220)
+    _save_chart(fig, path)
     plt.close(fig)
     return path
 
@@ -2078,7 +2104,7 @@ def _save_regime_forward_returns_figure(
     ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{v:.1f}%"))
     fig.tight_layout()
     path = figure_dir / FIGURE_FILENAMES["regime_forward_returns"]
-    fig.savefig(path, dpi=220)
+    _save_chart(fig, path)
     plt.close(fig)
     return path
 
@@ -2115,7 +2141,7 @@ def _save_annual_returns_figure(panels: dict[str, object], figure_dir: Path) -> 
     ax.legend(loc="upper left")
     fig.tight_layout()
     path = figure_dir / FIGURE_FILENAMES["annual_returns"]
-    fig.savefig(path, dpi=220)
+    _save_chart(fig, path)
     plt.close(fig)
     return path
 
@@ -2156,7 +2182,7 @@ def _save_risk_return_scatter_figure(metrics: pd.DataFrame, figure_dir: Path) ->
     ax.legend(loc="upper left", fontsize=8)
     fig.tight_layout()
     path = figure_dir / FIGURE_FILENAMES["risk_return_scatter"]
-    fig.savefig(path, dpi=220)
+    _save_chart(fig, path)
     plt.close(fig)
     return path
 
@@ -2292,7 +2318,7 @@ def _save_signal_pipeline_swimlane_figure(figure_dir: Path) -> Path:
                  fontsize=12, fontweight="bold", color="#1A365D", loc="left", pad=15)
     fig.tight_layout()
     path = figure_dir / FIGURE_FILENAMES["signal_pipeline"]
-    fig.savefig(path, dpi=220, bbox_inches="tight")
+    _save_chart(fig, path)
     plt.close(fig)
     return path
 
@@ -2355,7 +2381,7 @@ def _save_monthly_cycle_flow_figure(figure_dir: Path) -> Path:
                  fontsize=11.5, fontweight="bold", color="#1A365D", loc="left", pad=12)
     fig.tight_layout()
     path = figure_dir / FIGURE_FILENAMES["monthly_cycle"]
-    fig.savefig(path, dpi=220, bbox_inches="tight")
+    _save_chart(fig, path)
     plt.close(fig)
     return path
 
@@ -2446,7 +2472,7 @@ def _save_state_machine_figure(figure_dir: Path) -> Path:
                  fontsize=12, fontweight="bold", color="#1A365D", loc="left", pad=15)
     fig.tight_layout()
     path = figure_dir / FIGURE_FILENAMES["state_machine"]
-    fig.savefig(path, dpi=220, bbox_inches="tight")
+    _save_chart(fig, path)
     plt.close(fig)
     return path
 
@@ -2483,7 +2509,7 @@ def _save_monthly_heatmap_figure(panels: dict[str, object], figure_dir: Path) ->
     ax.tick_params(length=0, labelsize=8.5)
     fig.tight_layout()
     path = figure_dir / FIGURE_FILENAMES["monthly_heatmap"]
-    fig.savefig(path, dpi=220, bbox_inches="tight")
+    _save_chart(fig, path)
     plt.close(fig)
     return path
 
@@ -2527,7 +2553,7 @@ def _save_annual_costs_figure(oos_returns: pd.DataFrame, figure_dir: Path) -> Pa
 
     fig.tight_layout(w_pad=3.0)
     path = figure_dir / FIGURE_FILENAMES["annual_costs"]
-    fig.savefig(path, dpi=220)
+    _save_chart(fig, path)
     plt.close(fig)
     return path
 
@@ -2566,7 +2592,7 @@ def _save_correlation_heatmap_figure(figure_dir: Path, output_dir: Path) -> Path
     ax.tick_params(length=0, labelsize=8.5)
     fig.tight_layout()
     path = figure_dir / FIGURE_FILENAMES["correlation_heatmap"]
-    fig.savefig(path, dpi=220, bbox_inches="tight")
+    _save_chart(fig, path)
     plt.close(fig)
     return path
 
@@ -2600,7 +2626,7 @@ def _save_cumulative_alpha_figure(panels: dict[str, object], figure_dir: Path) -
     ax.legend(loc="upper left")
     fig.tight_layout()
     path = figure_dir / FIGURE_FILENAMES["cumulative_alpha"]
-    fig.savefig(path, dpi=220)
+    _save_chart(fig, path)
     plt.close(fig)
     return path
 

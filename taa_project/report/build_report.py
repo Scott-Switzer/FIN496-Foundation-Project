@@ -97,9 +97,9 @@ def _fmt_pct(value: float) -> str:
 
 
 def _styles():
-    caption_style = ParagraphStyle("Caption", fontName=FONT_ITALIC, fontSize=7.5, leading=9.375,
+    caption_style = ParagraphStyle("fig_caption", fontName=FONT_ITALIC, fontSize=7.5, leading=10,
                                    textColor=COL_SLATE, alignment=TA_CENTER,
-                                   spaceBefore=2, spaceAfter=4,
+                                   spaceBefore=2, spaceAfter=6,
                                    wordWrap="LTR")
     return {
         "title": ParagraphStyle("Title", fontName=FONT_BOLD, fontSize=28, leading=32,
@@ -109,25 +109,25 @@ def _styles():
                                     textColor=COL_GREY, alignment=TA_CENTER, spaceBefore=0,
                                     spaceAfter=3, wordWrap="LTR"),
         "h1": ParagraphStyle("H1", fontName=FONT_BOLD, fontSize=12, leading=15,
-                              textColor=COL_NAVY, spaceBefore=8, spaceAfter=3,
+                              textColor=COL_NAVY, spaceBefore=6, spaceAfter=3,
                               wordWrap="LTR", keepWithNext=1),
         "h2": ParagraphStyle("H2", fontName=FONT_BOLD, fontSize=10.5, leading=13,
-                              textColor=COL_NAVY, spaceBefore=8, spaceAfter=3,
+                              textColor=COL_NAVY, spaceBefore=6, spaceAfter=3,
                               wordWrap="LTR", keepWithNext=1),
-        "body": ParagraphStyle("Body", fontName=FONT, fontSize=BODY_SIZE, leading=BODY_SIZE * 1.25,
+        "body": ParagraphStyle("Body", fontName=FONT, fontSize=BODY_SIZE, leading=BODY_SIZE * 1.3,
                                 textColor=COL_NAVY, spaceBefore=0, spaceAfter=3,
                                 alignment=TA_JUSTIFY, wordWrap="LTR",
                                 allowWidows=0, allowOrphans=0, keepWithPrevious=1),
-        "body_small": ParagraphStyle("BodySmall", fontName=FONT, fontSize=SMALL_SIZE, leading=SMALL_SIZE * 1.25,
+        "body_small": ParagraphStyle("BodySmall", fontName=FONT, fontSize=SMALL_SIZE, leading=SMALL_SIZE * 1.3,
                                       textColor=COL_NAVY, spaceBefore=0, spaceAfter=3,
                                       alignment=TA_JUSTIFY, wordWrap="LTR",
                                       allowWidows=0, allowOrphans=0, keepWithPrevious=1),
-        "bullet": ParagraphStyle("Bullet", fontName=FONT, fontSize=BODY_SIZE, leading=BODY_SIZE * 1.25,
+        "bullet": ParagraphStyle("Bullet", fontName=FONT, fontSize=BODY_SIZE, leading=BODY_SIZE * 1.3,
                                  textColor=COL_NAVY, spaceBefore=0, spaceAfter=3,
                                  leftIndent=10, bulletIndent=2,
                                  bulletFontName=FONT, bulletFontSize=8,
                                  allowWidows=0, allowOrphans=0, keepWithPrevious=1),
-        "bullet_small": ParagraphStyle("BulletSmall", fontName=FONT, fontSize=SMALL_SIZE, leading=SMALL_SIZE * 1.25,
+        "bullet_small": ParagraphStyle("BulletSmall", fontName=FONT, fontSize=SMALL_SIZE, leading=SMALL_SIZE * 1.3,
                                         textColor=COL_NAVY, spaceBefore=0, spaceAfter=3,
                                         leftIndent=10, bulletIndent=2,
                                         bulletFontName=FONT, bulletFontSize=7,
@@ -230,13 +230,37 @@ def _safe_image(path: Path, width: float, height: float, styles: dict):
 
 
 def _section_heading(story: list, text: str, styles: dict) -> None:
-    story.append(Paragraph(text, styles["h1"]))
-    story.append(HRFlowable(width="100%", thickness=0.8, color=COL_GOLD,
-                            spaceAfter=3, spaceBefore=0))
+    story.append(KeepTogether([
+        Paragraph(text, styles["h1"]),
+        HRFlowable(width="100%", thickness=0.8, color=COL_GOLD,
+                   spaceAfter=3, spaceBefore=0),
+    ]))
+
+
+def _section_intro(story: list, text: str, paragraph: str, styles: dict,
+                   style_name: str = "body") -> None:
+    story.append(KeepTogether([
+        Paragraph(text, styles["h1"]),
+        HRFlowable(width="100%", thickness=0.8, color=COL_GOLD,
+                   spaceAfter=3, spaceBefore=0),
+        Paragraph(paragraph, styles[style_name]),
+    ]))
+
+
+def _grey_divider(story: list) -> None:
+    story.append(Spacer(1, 0.2 * cm))
+    story.append(HRFlowable(width="100%", thickness=0.4, color=COL_MID,
+                            spaceAfter=4, spaceBefore=0))
 
 
 def _chart_caption(text: str, styles: dict) -> Paragraph:
     return Paragraph(text, styles["caption_style"])
+
+
+def _add_chart(story: list, path: Path, height: float, caption: str, styles: dict) -> None:
+    story.append(Spacer(1, 0.1 * cm))
+    story.append(_safe_image(path, CONTENT_W, height, styles))
+    story.append(_chart_caption(caption, styles))
 
 
 _SIGNAL_DISPLAY = {
@@ -256,29 +280,32 @@ def _build_attribution_figure(per_signal: pd.DataFrame, figure_dir: Path) -> Pat
 
     plot_df = per_signal[per_signal["layer"] != "baseline"].copy()
     plot_df["label"] = plot_df["layer"].map(_SIGNAL_DISPLAY).fillna(plot_df["layer"])
+    plot_df = plot_df.assign(abs_impact=plot_df["marginal_oos_sharpe"].abs())
+    plot_df = plot_df.sort_values("abs_impact", ascending=True)
     values = plot_df["marginal_oos_sharpe"].to_numpy(dtype=float)
-    bar_colors = ["#1A365D" if v >= 0 else "#C53030" for v in values]
+    bar_colors = ["#1B2A4A" if v >= 0 else "#C0392B" for v in values]
 
     fig, ax = plt.subplots(figsize=(9.5, 5.0))
-    bars = ax.bar(plot_df["label"], values, color=bar_colors, width=0.5, zorder=3,
-                  edgecolor="white", linewidth=0.6)
-    ax.axhline(0.0, color="#CBD5E0", linewidth=0.9, zorder=2)
-    for bar, val in zip(bars, values):
-        offset = 0.003 if val >= 0 else -0.003
-        ax.text(bar.get_x() + bar.get_width() / 2, val + offset,
-                f"{val:+.3f}", ha="center", va="bottom" if val >= 0 else "top",
-                fontsize=10, color="#2D3748", fontweight="bold")
-    ax.set_ylabel("ΔSharpe vs. ablated baseline", fontsize=10)
+    fig.patch.set_facecolor("#FAFAF7")
+    ax.set_facecolor("#FAFAF7")
+    bars = ax.barh(plot_df["label"], values, color=bar_colors, zorder=3)
+    ax.bar_label(bars, fmt="%.3f", fontsize=7, padding=3, color="#1B2A4A")
+    ax.axvline(0.0, color="#CCCCCC", linewidth=0.8, zorder=2)
+    ax.set_xlabel("Change in OOS Sharpe Ratio", fontsize=8)
     ax.set_title("Signal Attribution  ·  Marginal OOS Sharpe", fontsize=12,
-                 fontweight="bold", color="#1A365D")
+                 fontweight="bold", color="#1B2A4A")
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
-    ax.tick_params(axis="x", labelsize=10)
-    ax.grid(axis="y", alpha=0.3, zorder=0)
+    ax.spines["left"].set_color("#CCCCCC")
+    ax.spines["bottom"].set_color("#CCCCCC")
+    ax.tick_params(labelsize=7, colors="#1B2A4A")
+    ax.yaxis.grid(True, color="#CCCCCC", linewidth=0.4, linestyle="--", zorder=0)
+    ax.set_axisbelow(True)
     fig.tight_layout()
 
     out_path = figure_dir / "fig07_attribution_bar_report.png"
-    fig.savefig(out_path, dpi=220, bbox_inches="tight")
+    fig.savefig(out_path, dpi=180, bbox_inches="tight",
+                facecolor="#FAFAF7", edgecolor="none")
     plt.close(fig)
     return out_path
 
@@ -377,8 +404,10 @@ def build_report(
     top_margin = DEFAULT_TOP_MARGIN
     bottom_margin = DEFAULT_BOTTOM_MARGIN
     CONTENT_W = PAGE_W - left_margin - right_margin
-    full_chart_h = CONTENT_W * 0.42
-    medium_chart_h = CONTENT_W * 0.38
+    print(f"CONTENT_W = {CONTENT_W:.2f} pt ({CONTENT_W/cm:.3f} cm)")
+    full_chart_h = CONTENT_W * 0.40
+    medium_chart_h = CONTENT_W * 0.35
+    compact_chart_h = CONTENT_W * 0.30
     key_metrics_widths = [
         CONTENT_W * 0.19,
         CONTENT_W * 0.11,
@@ -448,15 +477,15 @@ def build_report(
     )
     cover_inner_content = [
         Paragraph("WHITMORE CAPITAL PARTNERS", cover_firm_style),
-        Spacer(1, 10),
+        Spacer(1, 0.2 * cm),
         Paragraph("Strategic &amp; Tactical Asset Allocation", cover_title_style),
-        Spacer(1, 8),
+        Spacer(1, 0.2 * cm),
         Paragraph("Research Report | FIN 496 Foundation Project", cover_sub_style),
-        Spacer(1, 24),
+        Spacer(1, 0.2 * cm),
         HRFlowable(width="60%", thickness=1.5, color=COL_GOLD,
                    hAlign="CENTER", spaceAfter=20, spaceBefore=0),
         Paragraph("Prepared for the Whitmore Investment Principal", cover_prepared_style),
-        Spacer(1, 8),
+        Spacer(1, 0.2 * cm),
         Paragraph("Chapman University &nbsp;|&nbsp; April 2026 &nbsp;|&nbsp; Confidential",
                   cover_meta_style),
     ]
@@ -466,7 +495,7 @@ def build_report(
         [[cover_inner_content]],
         colWidths=[CONTENT_W],
         rowHeights=[cover_content_h],
-        hAlign="CENTER",
+        hAlign="LEFT",
     )
     cover_table.setStyle(TableStyle([
         ("VALIGN", (0, 0), (0, 0), "MIDDLE"),
@@ -528,7 +557,7 @@ def build_report(
         ("FONTNAME", (0, -1), (-1, -1), BASE_FONT_ITALIC),
     ]))
     story.append(toc_table)
-    story.append(Spacer(1, 0.25 * cm))
+    story.append(Spacer(1, 0.2 * cm))
     about_heading_style = ParagraphStyle(
         "toc_about_heading",
         fontName=BASE_FONT_BOLD,
@@ -568,11 +597,8 @@ def build_report(
     story.append(PageBreak())
 
     # PAGE 3 - EXECUTIVE SUMMARY + KEY METRICS
-    _section_heading(story, "Executive Summary", S)
-    story.append(Spacer(1, 0.05 * cm))
-
     # 1.1 — Client-facing executive summary (under 200 words)
-    story.append(Paragraph(
+    _section_intro(story, "Executive Summary",
         "We recommend adopting the combined Strategic and Tactical Asset Allocation portfolio as the "
         "live policy for Whitmore's liquid assets. The strategy targets an 8% annual return while "
         "respecting the Investment Policy Statement's 15% volatility ceiling and 25% drawdown limit. "
@@ -580,7 +606,7 @@ def build_report(
         f"per year with {_fmt_pct(taa['annualized_volatility'])} volatility and a maximum drawdown of "
         f"{_fmt_pct(taa['max_drawdown'])}, preserving capital better than both policy benchmarks during "
         "the 2008 and 2020 crises.",
-        S["body"]))
+        S)
 
     story.append(Paragraph(
         "The portfolio is built in two layers. The Strategic Asset Allocation uses minimum-variance "
@@ -619,6 +645,14 @@ def build_report(
         f"{dsr['baseline_dsr']:.3f} across {disclosed} disclosed trial configurations (Bailey and "
         "Lopez de Prado, 2014). All returns net of transaction costs.",
         S["body_small"]))
+    _add_chart(
+        story,
+        inputs["figures"]["cumgrowth"],
+        full_chart_h,
+        "Figure 1: Cumulative portfolio growth indexed to 100, January 2003–April 2026, net of "
+        "5 bps round-trip transaction costs.",
+        S,
+    )
 
     story.append(Spacer(1, 0.1 * cm))
     story.append(Paragraph("What the TAA overlay contributes:", S["label"]))
@@ -634,6 +668,30 @@ def build_report(
         f"{taa_soft} soft violations (market-driven volatility spikes during crisis periods) "
         f"with {taa_hard} hard violations.",
         S["body"]))
+    story.append(Paragraph(
+        f"Peak-to-trough drawdowns. SAA+TAA (navy): {_fmt_pct(taa['max_drawdown'])} maximum loss. "
+        f"Benchmark 2: {_fmt_pct(bm2['max_drawdown'])}. Benchmark 1: {_fmt_pct(bm1['max_drawdown'])}. "
+        "The IPS hard limit is -25%, and red shading highlights threshold breaches.",
+        S["body_small"]))
+    _add_chart(
+        story,
+        inputs["figures"]["drawdown"],
+        full_chart_h,
+        "Figure 2: Peak-to-trough drawdowns. Dashed red line marks the IPS -25% hard limit.",
+        S,
+    )
+    story.append(Paragraph(
+        "252-day rolling annualized returns demonstrate consistency of outperformance. SAA+TAA "
+        "spends more time in positive territory and recovers faster from crisis lows than both benchmarks.",
+        S["body_small"]))
+    _add_chart(
+        story,
+        inputs["figures"]["rolling_12m"],
+        full_chart_h,
+        "Figure 3: 252-day rolling annualized returns. SAA+TAA spends more time in positive "
+        "territory and recovers faster from crisis lows.",
+        S,
+    )
 
     # 1.7 — Benchmarks Definition Table
     story.append(Spacer(1, 0.12 * cm))
@@ -658,19 +716,15 @@ def build_report(
                            available_width=CONTENT_W))
 
     # PAGE 4 - SAA CONSTRUCTION
-    story.append(Spacer(1, 0.3 * cm))
-    story.append(HRFlowable(width="100%", thickness=0.5, color=COL_MID,
-                            spaceAfter=6, spaceBefore=0))
-    _section_heading(story, "SAA Construction and Methodology", S)
-
-    story.append(Paragraph(
+    _grey_divider(story)
+    _section_intro(story, "SAA Construction and Methodology",
         "The Strategic Asset Allocation sets the baseline weights for the 11 assets across the Core, "
         "Satellite, and Non-Traditional sleeves. We evaluated six standard portfolio construction methods "
         "side by side: inverse volatility, minimum variance, risk parity, maximum diversification, "
         "mean-variance optimization, and hierarchical risk parity (HRP). Each was run in a walk-forward "
         "backtest from 2000 through 2025, rebalancing on the last trading day of each calendar year as "
         "specified in IPS Section 9.",
-        S["body"]))
+        S)
 
     story.append(Paragraph("SAA Method Comparison (2000–2025, after costs):", S["label"]))
     story.append(Spacer(1, 0.05 * cm))
@@ -764,16 +818,14 @@ def build_report(
 
     # PAGE 4 - TAA SIGNAL DESIGN
     story.append(Spacer(1, 0.15 * cm))
-    _section_heading(story, "TAA Signal Design", S)
-
-    story.append(Paragraph(
+    _section_intro(story, "TAA Signal Design",
         "The Tactical Asset Allocation layer tilts the SAA target weights each month using five "
         "independent signals that draw from distinct information sources. Each signal produces a "
         "per-asset score between -1 and +1. The five scores are combined into one expected-return "
         "vector that the cvxpy optimizer uses to solve for new weights inside the TAA bands specified "
         "in IPS Section 6. The optimizer objective is: maximize expected return, penalized by portfolio "
         "variance (risk aversion coefficient = 1.5) and transaction costs (5 bps per unit of turnover).",
-        S["body"]))
+        S)
 
     # 1.3 — TAA signal design with strengthened economic mechanisms
     signal_text = [
@@ -846,6 +898,14 @@ def build_report(
         "projection to ensure exact compliance when the cvxpy solution is numerically close to "
         "a boundary but not precisely at it.",
         S["body_small"]))
+    _add_chart(
+        story,
+        inputs["figures"]["weights"],
+        medium_chart_h,
+        "Figure 4: Monthly TAA target weights. Equity allocation falls from ~40% to ~20% in "
+        "stress periods, replaced by bonds and Swiss Franc.",
+        S,
+    )
 
     story.append(Paragraph(
         "Important design choice: the strategy contains no hard-coded safe-haven allocation. When "
@@ -866,20 +926,19 @@ def build_report(
         "the signal's weight in the final score. The optimizer then solves for new portfolio weights "
         "subject to all IPS constraints and the regime-based volatility budget.",
         S["body_small"]))
-    story.append(_safe_image(inputs["figures"]["signal_pipeline"], CONTENT_W, full_chart_h, S))
+    story.append(Spacer(1, 0.1 * cm))
+    story.append(_safe_image(inputs["figures"]["signal_pipeline"], CONTENT_W, medium_chart_h, S))
     story.append(_chart_caption(
-        "Figure 1: Signal pipeline from independent tactical inputs to monthly optimizer weights.",
+        "Supplemental figure: Signal pipeline from independent tactical inputs to monthly optimizer weights.",
         S))
 
     # PAGE 5 - RISK BUDGETS + OPPORTUNISTIC + WALK-FORWARD
     story.append(Spacer(1, 0.15 * cm))
-    _section_heading(story, "Regime-Based Risk Budgeting", S)
-
-    story.append(Paragraph(
+    _section_intro(story, "Regime-Based Risk Budgeting",
         "Rather than use one volatility target for all market conditions, the optimizer's monthly "
         "volatility budget shifts with the HMM regime label. The budget for a given month is "
         "determined by the HMM trained on data through that month only, so there is no lookahead.",
-        S["body"]))
+        S)
 
     budget_data = [
         ["Regime", "Vol Target", "When It Applies"],
@@ -898,14 +957,26 @@ def build_report(
         "8%, which effectively capped equity and commodity exposure and pushed the portfolio into "
         "short-duration bonds and the Swiss Franc.",
         S["body_small"]))
+    story.append(Paragraph(
+        "HMM regime shading: risk-on (green), neutral (yellow), stress (red). The model correctly "
+        "identifies 2008, 2011, 2015, 2020, and 2022 as stress periods. Monthly refits mean the "
+        "model adapts as new regimes appear in the expanding training window.",
+        S["body_small"]))
+    _add_chart(
+        story,
+        inputs["figures"]["regime"],
+        medium_chart_h,
+        "Figure 5: HMM regime classification. Green = risk-on, yellow = neutral, red = stress. "
+        "Model correctly identifies 2008, 2020, and 2022.",
+        S,
+    )
 
     story.append(Spacer(1, 0.12 * cm))
-    _section_heading(story, "Opportunistic Sleeve", S)
-    story.append(Paragraph(
+    _section_intro(story, "Opportunistic Sleeve",
         "The IPS permits allocation to 23 Appendix A assets (international equities, sovereign "
         "and corporate bonds, commodities, currencies, Ethereum) for short-term alpha capture. "
         "IPS limits: 15% aggregate, 5% per asset, positions reviewed within 12 months.",
-        S["body"]))
+        S)
     story.append(Paragraph(
         "We apply a tighter internal cap of 8% aggregate. Our diagnostics showed that approaching "
         "the full 15% increased short-window realized volatility without a proportional increase "
@@ -916,14 +987,21 @@ def build_report(
         S["body_small"]))
 
     story.append(Spacer(1, 0.12 * cm))
-    _section_heading(story, "Walk-Forward Validation", S)
-    story.append(Paragraph(
+    _section_intro(story, "Walk-Forward Validation",
         "We split the out-of-sample period (January 2003 through April 2026) into five "
         "contiguous, expanding folds. Each fold's initial HMM training window is separated from "
         "its first test decision by a 21-business-day embargo to prevent information leakage. "
         "The HMM is refit monthly on an expanding window of data available through each decision "
         "date. The table below shows the date ranges and per-fold results.",
-        S["body"]))
+        S)
+    _add_chart(
+        story,
+        inputs["figures"]["folds"],
+        compact_chart_h,
+        "Figure 6: Walk-forward expanding window structure. Grey = training, gold = embargo, "
+        "navy = out-of-sample test period.",
+        S,
+    )
 
     story.append(Spacer(1, 0.05 * cm))
     story.append(Paragraph("Per-Fold Performance:", S["label"]))
@@ -942,11 +1020,10 @@ def build_report(
                            col_widths=per_fold_widths))
     story.append(Spacer(1, 0.1 * cm))
     story.append(Paragraph("Per-Fold Sharpe Comparison", S["h2"]))
-    story.append(_safe_image(inputs["figures"]["per_fold"], CONTENT_W, medium_chart_h, S))
+    story.append(_safe_image(inputs["figures"]["per_fold"], CONTENT_W, compact_chart_h, S))
     story.append(_chart_caption(
-        "Figure 2: Grouped Sharpe ratios by fold show SAA+TAA outperforming both benchmarks in "
-        "every fold except Fold 2 (GFC), where all portfolios suffered but SAA+TAA still preserved "
-        "relative capital.",
+        "Figure 7: Out-of-sample Sharpe ratio by fold. SAA+TAA outperforms both benchmarks in "
+        "every fold except Fold 2 (GFC).",
         S))
 
     story.append(Spacer(1, 0.08 * cm))
@@ -998,85 +1075,15 @@ def build_report(
         "(Bailey and López de Prado, 2014).",
         S["body_small"]))
 
-    # PAGE 6 - PERFORMANCE FIGURES
-    story.append(PageBreak())
-    _section_heading(story, "Performance Chart: Cumulative Growth", S)
-    story.append(Paragraph(
-        "All four portfolios indexed to 100 at the first common date. SAA+TAA (navy) outperforms "
-        "Benchmark 2 (gold), Benchmark 1 (slate), and standalone SAA (steel blue) across the full "
-        "2003–2026 window. Grey bands mark major drawdown episodes.", S["body_small"]))
-    story.append(_safe_image(inputs["figures"]["cumgrowth"], CONTENT_W, full_chart_h, S))
-    story.append(_chart_caption(
-        "Figure 3: Cumulative portfolio growth indexed to 100, January 2003-April 2026, net of "
-        "5 bps round-trip costs.",
-        S))
-    story.append(Spacer(1, 0.1 * cm))
-
-    _section_heading(story, "Drawdown Analysis", S)
-    story.append(Paragraph(
-        f"Peak-to-trough drawdowns. SAA+TAA (navy): {_fmt_pct(taa['max_drawdown'])} maximum loss. "
-        f"Benchmark 2: {_fmt_pct(bm2['max_drawdown'])}. Benchmark 1: {_fmt_pct(bm1['max_drawdown'])}. "
-        "Red shading highlights IPS threshold breaches.", S["body_small"]))
-    story.append(_safe_image(inputs["figures"]["drawdown"], CONTENT_W, full_chart_h, S))
-    story.append(_chart_caption(
-        "Figure 4: Peak-to-trough drawdowns versus the IPS -25% maximum drawdown limit.",
-        S))
-
-    story.append(Spacer(1, 0.1 * cm))
-    _section_heading(story, "Rolling 12-Month Return Comparison", S)
-    story.append(Paragraph(
-        "252-day rolling annualized returns demonstrate consistency of outperformance. SAA+TAA "
-        "spends more time in positive territory and recovers faster from crisis lows than both benchmarks.",
-        S["body_small"]))
-    story.append(_safe_image(inputs["figures"]["rolling_12m"], CONTENT_W, full_chart_h, S))
-    story.append(_chart_caption(
-        "Figure 5: Rolling 252-day annualized returns for SAA+TAA, SAA, BM1, and BM2.",
-        S))
-
-    # PAGE 7 - WEIGHTS + REGIME
-    story.append(Spacer(1, 0.1 * cm))
-    _section_heading(story, "TAA Weight Allocation Over Time", S)
-    story.append(Paragraph(
-        "Monthly TAA target weights. Green and blue bands at the bottom: fixed-income (Treasuries, "
-        "TIPS). Red and orange bands: equity and REIT exposure. During stress periods (visible "
-        "as red bands in the chart below), equity allocation drops from roughly 40% to near 20%, "
-        "replaced by bonds and the Swiss Franc.", S["body_small"]))
-    story.append(_safe_image(inputs["figures"]["weights"], CONTENT_W, full_chart_h, S))
-    story.append(_chart_caption(
-        "Figure 6: Monthly TAA target weights over time by asset sleeve and tactical allocation.",
-        S))
-
-    story.append(Spacer(1, 0.1 * cm))
-    _section_heading(story, "HMM Regime Detection", S)
-    story.append(Paragraph(
-        "HMM regime shading: risk-on (green), neutral (yellow), stress (red). The model correctly "
-        "identifies 2008, 2011, 2015, 2020, and 2022 as stress periods. Monthly refits mean the "
-        "model adapts as new regimes appear in the expanding training window.", S["body_small"]))
-    story.append(_safe_image(inputs["figures"]["regime"], CONTENT_W, full_chart_h, S))
-    story.append(_chart_caption(
-        "Figure 7: HMM regime classification with risk-on, neutral, and stress periods.",
-        S))
-
-    # PAGE 8 - WALK-FORWARD FOLDS + ATTRIBUTION
-    story.append(Spacer(1, 0.1 * cm))
-    _section_heading(story, "Walk-Forward Fold Structure", S)
-    story.append(Paragraph(
-        "Five expanding walk-forward folds. Grey bars: training window. Gold bars: 21-day embargo. "
-        "Navy bars: out-of-sample test period.", S["body_small"]))
-    story.append(_safe_image(inputs["figures"]["folds"], CONTENT_W, full_chart_h, S))
-    story.append(_chart_caption(
-        "Figure 8: Walk-forward expanding-window fold structure with 21-day embargo periods.",
-        S))
-
-    story.append(Spacer(1, 0.12 * cm))
-    _section_heading(story, "SAA and TAA Contribution", S)
-    story.append(Paragraph(
+    _grey_divider(story)
+    _section_intro(story, "SAA and TAA Contribution",
         "The table below breaks out what each layer contributes independently. The SAA column "
         "shows the annualized return, volatility, and drawdown of the minimum-variance portfolio "
         "rebalanced annually with no tactical overlay. The TAA column shows what the overlay adds: "
         "1.86% of additional return, a 2.4 percentage point reduction in volatility versus BM2, and "
         "a 10.6 percentage point improvement in maximum drawdown versus the SAA. The combined "
-        "SAA+TAA column shows the final result.", S["body"]))
+        "SAA+TAA column shows the final result.",
+        S)
 
     contrib_data = [
         ["Metric", "SAA Only", "TAA Contribution", "SAA+TAA Combined"],
@@ -1149,8 +1156,7 @@ def build_report(
         S["body_small"]))
 
     story.append(Spacer(1, 0.12 * cm))
-    _section_heading(story, "Signal Attribution (Leave-One-Out OOS Reruns)", S)
-    story.append(Paragraph(
+    _section_intro(story, "Signal Attribution (Leave-One-Out OOS Reruns)",
         "Each bar shows the change in out-of-sample Sharpe when one signal is removed and the "
         "remaining four signals are retrained and retested from scratch. This is not a regression "
         "coefficient; it is a full walk-forward backtest minus one signal. The VIX trip-wire "
@@ -1158,21 +1164,21 @@ def build_report(
         "consistently across all folds. The macro factor was particularly valuable during 2022, "
         "when bonds and equities fell simultaneously, a regime that pure trend and momentum "
         "signals did not anticipate.",
-        S["body_small"]))
-    story.append(_safe_image(inputs["figures"]["attribution"], CONTENT_W, medium_chart_h, S))
+        S, "body_small")
+    story.append(Spacer(1, 0.1 * cm))
+    story.append(_safe_image(inputs["figures"]["attribution"], CONTENT_W, compact_chart_h, S))
     story.append(_chart_caption(
-        "Figure 9: Leave-one-out signal attribution measured by change in out-of-sample Sharpe.",
+        "Figure 8: Signal attribution. Each bar shows the OOS Sharpe impact of removing one signal. "
+        "Positive = signal adds value.",
         S))
 
     # PAGE 9 - IPS COMPLIANCE
     story.append(Spacer(1, 0.1 * cm))
-    _section_heading(story, "IPS Compliance Audit", S)
-
-    story.append(Paragraph(
+    _section_intro(story, "IPS Compliance Audit",
         "The portfolio satisfied every IPS hard constraint across the full 6,901-day backtest. "
         "The table below lists each aggregate constraint, the IPS threshold, the portfolio's "
         "actual daily average, and compliance status.",
-        S["body"]))
+        S)
 
     comp_data = [
         ["Constraint", "IPS Limit", "SAA+TAA (avg)", "Status"],
@@ -1220,19 +1226,19 @@ def build_report(
         ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#EEF1F7")),
         ("BOX", (0, 0), (-1, -1), 2.0, COL_NAVY),
         ("LINEABOVE", (0, 0), (-1, 0), 4.0, COL_GOLD),
-        ("TOPPADDING", (0, 0), (-1, -1), 14),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 14),
-        ("LEFTPADDING", (0, 0), (-1, -1), 16),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 16),
+        ("TOPPADDING", (0, 0), (-1, -1), 10),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
+        ("LEFTPADDING", (0, 0), (-1, -1), 12),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 12),
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
     ])
     rec_header_style = ParagraphStyle(
         "rec_header",
         fontName=BASE_FONT_BOLD,
-        fontSize=13,
-        leading=17,
+        fontSize=12,
+        leading=16,
         textColor=COL_NAVY,
-        spaceAfter=6,
+        spaceAfter=4,
         spaceBefore=0,
         keepWithNext=1,
     )
@@ -1256,7 +1262,8 @@ def build_report(
         fontSize=9,
         leading=13,
         textColor=COL_NAVY,
-        leftIndent=12,
+        leftIndent=6,
+        firstLineIndent=-6,
         bulletIndent=0,
         spaceAfter=3,
         spaceBefore=0,
@@ -1267,7 +1274,7 @@ def build_report(
         keepWithPrevious=1,
     )
     rec_content = [
-        Paragraph("&#9654; Investment Recommendation", rec_header_style),
+        Paragraph("Investment Recommendation", rec_header_style),
         Paragraph(
             "We recommend that Whitmore Capital Partners adopt the SAA+TAA portfolio as the live "
             "policy allocation. Our specific recommendations are:",
@@ -1306,7 +1313,7 @@ def build_report(
     ])
     rec_box = Table([[rec_content]], colWidths=[CONTENT_W], hAlign="LEFT")
     rec_box.setStyle(rec_box_style)
-    story.append(Spacer(1, 0.3 * cm))
+    story.append(Spacer(1, 0.2 * cm))
     story.append(rec_box)
     story.append(Spacer(1, 0.2 * cm))
 
@@ -1326,6 +1333,10 @@ def build_report(
         str(report_dir / REPORT_PDF_FILENAME),
         pagesize=A4,
         pageTemplates=[title_template, body_template],
+        leftMargin=left_margin,
+        rightMargin=right_margin,
+        topMargin=top_margin,
+        bottomMargin=bottom_margin,
         title="Whitmore Capital Partners SAA/TAA Report",
         author="FIN 496 Foundation Project",
     )

@@ -12,7 +12,7 @@ if str(REPO_ROOT) not in sys.path:
 
 import pandas as pd
 from reportlab.lib import colors
-from reportlab.lib.enums import TA_CENTER, TA_JUSTIFY
+from reportlab.lib.enums import TA_CENTER, TA_LEFT
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import cm
@@ -87,8 +87,9 @@ LEFT_MARGIN = 2.0 * cm
 RIGHT_MARGIN = 2.0 * cm
 DEFAULT_LEFT_MARGIN = LEFT_MARGIN
 DEFAULT_RIGHT_MARGIN = RIGHT_MARGIN
-DEFAULT_TOP_MARGIN = 1.45 * cm
-DEFAULT_BOTTOM_MARGIN = 1.05 * cm
+# Reduced vertical margins to increase usable body height; side margins stay unchanged.
+DEFAULT_TOP_MARGIN = 1.25 * cm
+DEFAULT_BOTTOM_MARGIN = 0.9 * cm
 CONTENT_W = PAGE_W - DEFAULT_LEFT_MARGIN - DEFAULT_RIGHT_MARGIN
 
 
@@ -114,21 +115,23 @@ def _styles():
         "h2": ParagraphStyle("H2", fontName=FONT_BOLD, fontSize=10.5, leading=13,
                               textColor=COL_NAVY, spaceBefore=6, spaceAfter=3,
                               wordWrap="LTR", keepWithNext=1),
+        # Left alignment avoids uneven word spacing in dense narrative paragraphs.
         "body": ParagraphStyle("Body", fontName=FONT, fontSize=BODY_SIZE, leading=BODY_SIZE * 1.3,
                                 textColor=COL_NAVY, spaceBefore=0, spaceAfter=3,
-                                alignment=TA_JUSTIFY, wordWrap="LTR",
+                                alignment=TA_LEFT, wordWrap="LTR",
                                 allowWidows=0, allowOrphans=0, keepWithPrevious=1),
         "body_small": ParagraphStyle("BodySmall", fontName=FONT, fontSize=SMALL_SIZE, leading=SMALL_SIZE * 1.3,
                                       textColor=COL_NAVY, spaceBefore=0, spaceAfter=3,
-                                      alignment=TA_JUSTIFY, wordWrap="LTR",
+                                      alignment=TA_LEFT, wordWrap="LTR",
                                       allowWidows=0, allowOrphans=0, keepWithPrevious=1),
         "bullet": ParagraphStyle("Bullet", fontName=FONT, fontSize=BODY_SIZE, leading=BODY_SIZE * 1.3,
                                  textColor=COL_NAVY, spaceBefore=0, spaceAfter=3,
                                  leftIndent=10, bulletIndent=2,
                                  bulletFontName=FONT, bulletFontSize=8,
                                  allowWidows=0, allowOrphans=0, keepWithPrevious=1),
+        # Tightened bullet spacing to keep converted lists compact.
         "bullet_small": ParagraphStyle("BulletSmall", fontName=FONT, fontSize=SMALL_SIZE, leading=SMALL_SIZE * 1.3,
-                                        textColor=COL_NAVY, spaceBefore=0, spaceAfter=3,
+                                        textColor=COL_NAVY, spaceBefore=0, spaceAfter=2,
                                         leftIndent=10, bulletIndent=2,
                                         bulletFontName=FONT, bulletFontSize=7,
                                         allowWidows=0, allowOrphans=0, keepWithPrevious=1),
@@ -252,7 +255,8 @@ def _section_intro(story: list, text: str, paragraph: str, styles: dict,
 
 
 def _grey_divider(story: list) -> None:
-    story.append(Spacer(1, 0.2 * cm))
+    # Reduced divider spacing to minimize body whitespace.
+    story.append(Spacer(1, 0.12 * cm))
     story.append(HRFlowable(width="100%", thickness=0.4, color=COL_MID,
                             spaceAfter=4, spaceBefore=0))
 
@@ -557,7 +561,8 @@ def build_report(
         ("FONTNAME", (0, -1), (-1, -1), BASE_FONT_ITALIC),
     ]))
     story.append(toc_table)
-    story.append(Spacer(1, 0.2 * cm))
+    # Reduced front-matter spacing to keep the report dense.
+    story.append(Spacer(1, 0.12 * cm))
     about_heading_style = ParagraphStyle(
         "toc_about_heading",
         fontName=BASE_FONT_BOLD,
@@ -575,7 +580,7 @@ def build_report(
         textColor=COL_SLATE,
         spaceAfter=0,
         spaceBefore=0,
-        alignment=TA_JUSTIFY,
+        alignment=TA_LEFT,
         wordWrap="LTR",
     )
     about_text = (
@@ -598,20 +603,27 @@ def build_report(
 
     # PAGE 3 - EXECUTIVE SUMMARY + KEY METRICS
     # 1.1 - Client-facing executive summary (under 200 words)
-    _section_intro(story, "Executive Summary",
+    # Split executive summary paragraphs to improve readability.
+    _section_heading(story, "Executive Summary", S)
+    story.append(Paragraph(
         "We recommend adopting the combined Strategic and Tactical Asset Allocation portfolio as the "
         "proposed policy allocation for Whitmore's liquid assets. The strategy targets an 8% annual return while "
-        "respecting the Investment Policy Statement's 15% volatility ceiling and 25% maximum drawdown limit. "
+        "respecting the Investment Policy Statement's 15% volatility ceiling and 25% maximum drawdown limit.",
+        S["body"]))
+    story.append(Paragraph(
         f"The January 2003 through April 2026 out-of-sample backtest produced {_fmt_pct(taa['annualized_return'])} "
         f"per year with {_fmt_pct(taa['annualized_volatility'])} volatility and a maximum drawdown of "
         f"{_fmt_pct(taa['max_drawdown'])}, preserving capital better than both policy benchmarks during "
         "the 2008 and 2020 crises.",
-        S)
+        S["body"]))
 
     story.append(Paragraph(
         "The portfolio is built in two layers. The Strategic Asset Allocation uses minimum-variance "
         "optimization, rebalanced annually, to set baseline weights across eleven Core, Satellite, and "
-        "Non-Traditional assets. The Tactical overlay adjusts these weights monthly using five "
+        "Non-Traditional assets.",
+        S["body"]))
+    story.append(Paragraph(
+        "The Tactical overlay adjusts these weights monthly using five "
         "independent signals drawn from macro, trend, momentum, volatility, and credit data. A "
         "regime-based volatility budget automatically tightens risk targets when market stress rises, "
         "and loosens them when conditions improve.",
@@ -640,10 +652,12 @@ def build_report(
                            header_font_size=7.5))
 
     story.append(Spacer(1, 0.1 * cm))
+    # Expanded DSR footnote to clarify the multiple-testing adjustment.
     story.append(Paragraph(
-        "Sharpe and Sortino ratios use a 2% risk-free rate. Deflated Sharpe Ratio for SAA+TAA is "
-        f"{dsr['baseline_dsr']:.3f} across {disclosed} disclosed trial configurations (Bailey and "
-        "Lopez de Prado, 2014). All returns net of transaction costs.",
+        "Sharpe and Sortino ratios use a 2% risk-free rate. The Deflated Sharpe Ratio corrects "
+        f"the observed Sharpe for multiple testing across {disclosed} disclosed trial configurations. "
+        f"SAA+TAA's Deflated Sharpe Ratio is {dsr['baseline_dsr']:.3f}, as discussed by Bailey "
+        "and López de Prado (2014). All returns net of transaction costs.",
         S["body_small"]))
     _add_chart(
         story,
@@ -658,12 +672,15 @@ def build_report(
     taa_excess_bps = round((taa["annualized_return"] - saa["annualized_return"]) * 10000)
     vol_diff_pp = round((bm2["annualized_volatility"] - taa["annualized_volatility"]) * 100, 1)
     dd_improvement_pp = round((bm2["max_drawdown"] - taa["max_drawdown"]) * 100, 1)
+    # Split contribution summary to keep each paragraph focused.
     story.append(Paragraph(
         f"The overlay adds {taa_excess_bps} basis points of annual return over the standalone SAA "
         f"after costs. It holds realized volatility {vol_diff_pp} percentage points below Benchmark 2. "
         f"It cuts the worst drawdown from {_fmt_pct(bm2['max_drawdown'])} (BM2) to "
-        f"{_fmt_pct(taa['max_drawdown'])} ({abs(dd_improvement_pp):.0f} percentage point improvement). "
-        f"And it reduces IPS compliance violations from {saa_c} in the standalone SAA to just "
+        f"{_fmt_pct(taa['max_drawdown'])} ({abs(dd_improvement_pp):.0f} percentage point improvement).",
+        S["body"]))
+    story.append(Paragraph(
+        f"It reduces IPS compliance violations from {saa_c} in the standalone SAA to just "
         f"{taa_soft} soft violations (market-driven volatility spikes during crisis periods) "
         f"with {taa_hard} hard violations.",
         S["body"]))
@@ -691,7 +708,8 @@ def build_report(
     )
 
     # 1.7 - Benchmarks Definition Table
-    story.append(Spacer(1, 0.12 * cm))
+    # Reduced spacing to minimize white space before the benchmark table.
+    story.append(Spacer(1, 0.08 * cm))
     story.append(Paragraph("Benchmark Definitions", S["h2"]))
     story.append(Paragraph(
         "The Investment Policy Statement specifies two policy benchmarks against which strategy performance "
@@ -714,14 +732,19 @@ def build_report(
 
     # PAGE 4 - SAA CONSTRUCTION
     _grey_divider(story)
-    _section_intro(story, "SAA Construction and Methodology",
+    # Split SAA setup paragraphs so each one carries a single idea.
+    _section_heading(story, "SAA Construction and Methodology", S)
+    story.append(Paragraph(
         "The Strategic Asset Allocation sets the baseline weights for the 11 assets across the Core, "
-        "Satellite, and Non-Traditional sleeves. We evaluated five standard portfolio construction methods "
+        "Satellite, and Non-Traditional sleeves.",
+        S["body"]))
+    story.append(Paragraph(
+        "We evaluated five standard portfolio construction methods "
         "side by side: inverse volatility, minimum variance, risk parity, maximum diversification, "
         "and mean-variance optimization. Each was run in a walk-forward "
         "backtest from 2000 through April 2026, rebalancing on the last trading day of each calendar year as "
         "specified in IPS Section 9.",
-        S)
+        S["body"]))
 
     story.append(Paragraph("SAA Method Comparison (2000–April 2026, after costs):", S["label"]))
     story.append(Spacer(1, 0.05 * cm))
@@ -740,10 +763,14 @@ def build_report(
                            col_widths=saa_method_widths))
 
     story.append(Spacer(1, 0.1 * cm))
+    # Split selection rationale into short, scanable paragraphs.
     story.append(Paragraph(
         "We selected Minimum Variance for three reasons. First, it produced the lowest realized "
         "volatility (7.7%) of all five methods. Second, its drawdown profile (−32.5%) was second "
-        "only to inverse volatility. Third, unlike mean-variance, it does not require expected-return "
+        "only to inverse volatility.",
+        S["body_small"]))
+    story.append(Paragraph(
+        "Third, unlike mean-variance, it does not require expected-return "
         "estimates. Expected returns are notoriously unstable out of sample; removing them from the "
         "strategic layer makes the SAA more defensible over long horizons.",
         S["body_small"]))
@@ -752,7 +779,10 @@ def build_report(
         "We acknowledge that minimum variance produces the lowest Sharpe ratio (0.59) of the five "
         "methods evaluated, a trade-off worth addressing directly. Maximum diversification and risk parity "
         "achieve higher risk-adjusted returns, but both rely on more complex covariance and correlation estimates "
-        "that are known to be unstable across regimes. For a conservative single-family office with "
+        "that are known to be unstable across regimes.",
+        S["body_small"]))
+    story.append(Paragraph(
+        "For a conservative single-family office with "
         "an intergenerational time horizon and a binding drawdown limit, minimizing realized volatility "
         "is the primary objective. The Sharpe shortfall (0.59 vs. 0.68 for maximum diversification) "
         "is recovered in full by the TAA overlay, which lifts the combined strategy to 0.88.",
@@ -761,7 +791,9 @@ def build_report(
     # 1.2a - why minimum-variance suits a conservative single-family office
     story.append(Paragraph(
         "Minimum-variance optimization is particularly well-suited to a conservative single-family "
-        "office because the objective is to minimize portfolio volatility rather than maximize return. "
+        "office because the objective is to minimize portfolio volatility rather than maximize return.",
+        S["body_small"]))
+    story.append(Paragraph(
         "Unlike a pension fund that can rely on long-dated liability matching and steady contribution "
         "inflows, a family office must preserve purchasing power across generations with no external "
         "funding backstop. By avoiding expected-return estimation at the strategic layer, the SAA "
@@ -784,21 +816,28 @@ def build_report(
     story.append(_df_table(pd.DataFrame(saa_rows[1:], columns=saa_rows[0]), max_rows=12,
                            available_width=CONTENT_W))
 
+    # Split zero-weight explanation into separate optimizer and IPS points.
     story.append(Paragraph(
         "FTSE100 and BITCOIN appear in the table with a 0.00% target weight. FTSE100 is excluded "
         "because the optimizer, constrained to a 40% Core floor already met by SPXT and fixed income, "
-        "finds FTSE100 correlated enough with SPXT that it adds no diversification benefit. BITCOIN "
+        "finds FTSE100 correlated enough with SPXT that it adds no diversification benefit.",
+        S["body_small"]))
+    story.append(Paragraph(
+        "BITCOIN "
         "is constrained to 0% by the IPS Non-Traditional cap (20%) which is already consumed by "
         "CHF_FRANC; Bitcoin's high volatility means the optimizer allocates zero weight rather than "
         "exceed the cap. Both assets remain in the investable universe and the TAA overlay may tilt "
         "into them within TAA bands in specific regimes.",
         S["body_small"]))
 
+    # Split method mechanics to separate constraints from universe handling.
     story.append(Paragraph(
         "The method naturally tilts toward lower-volatility positions (nominal Treasuries, gold, "
         "Swiss Franc) without violating any per-sleeve band constraint in the IPS. All five methods "
         "were constrained by the same IPS limits: Core floor 40%, Satellite cap 45%, Non-Traditional "
-        "cap 20% per Amendment 2026-02, single-sleeve maximum 45%, full investment, no short sales. "
+        "cap 20% per Amendment 2026-02, single-sleeve maximum 45%, full investment, no short sales.",
+        S["body_small"]))
+    story.append(Paragraph(
         "The optimization is solved at each rebalance using SciPy SLSQP. When an asset has not yet "
         "entered the investable universe (for example, Bitcoin began trading in mid-2010 and Chinese "
         "A-shares appeared in 2002), the optimizer excludes it and redistributes its weight across "
@@ -806,17 +845,24 @@ def build_report(
         S["body_small"]))
 
     # PAGE 4 - TAA SIGNAL DESIGN
-    story.append(Spacer(1, 0.15 * cm))
-    _section_intro(story, "TAA Signal Design",
+    # Reduced spacing to minimize white space before the TAA section.
+    story.append(Spacer(1, 0.10 * cm))
+    # Split TAA setup so the signal inputs and optimizer objective read separately.
+    _section_heading(story, "TAA Signal Design", S)
+    story.append(Paragraph(
         "The Tactical Asset Allocation layer tilts the SAA target weights each month using five "
         "independent signals that draw from distinct information sources. Each signal produces a "
-        "per-asset score between -1 and +1. The five scores are combined into one expected-return "
+        "per-asset score between -1 and +1.",
+        S["body"]))
+    story.append(Paragraph(
+        "The five scores are combined into one expected-return "
         "vector that the cvxpy optimizer uses to solve for new weights inside the TAA bands specified "
         "in IPS Section 6. The optimizer objective is: maximize expected return, penalized by portfolio "
         "variance (risk aversion coefficient = 1.5) and transaction costs (5 bps per unit of turnover).",
-        S)
+        S["body"]))
 
     # 1.3 - TAA signal design with strengthened economic mechanisms
+    # Split signal narratives into hypothesis, mechanism, and implementation paragraphs.
     signal_text = [
         ("Signal 1: Regime HMM (18% effective weight)",
          "Hypothesis: Financial stress indicators (equity volatility, credit spreads, yield-curve "
@@ -826,7 +872,7 @@ def build_report(
          "mechanism that links financial conditions to real asset prices. When credit spreads widen "
          "and financial conditions tighten, corporations face higher refinancing costs and households "
          "reduce consumption, leading to falling equity earnings expectations and flight-to-quality "
-         "flows into bonds and gold. "
+         "flows into bonds and gold.",
          "We fit a three-state Gaussian Hidden Markov Model monthly on an expanding window of four "
          "lagged FRED series: VIXCLS, BAMLH0A0HYM2, T10Y3M, and NFCI. Source: Hamilton (1989)."),
         ("Signal 2: Faber Trend (27% effective weight)",
@@ -834,7 +880,7 @@ def build_report(
          "risk-adjusted returns than those trading below it, across all asset classes tested.",
          "Economic mechanism: Price momentum persists because of behavioral anchoring, as investors "
          "underreact to new information initially, and because institutional flows chase recent winners, "
-         "creating self-reinforcing demand that continues until a catalyst reverses it. "
+         "creating self-reinforcing demand that continues until a catalyst reverses it.",
          "We compute a 120-observation SMA on each asset's observed trading history and score via "
          "tanh((P/SMA - 1) / sigma_60d) to produce a smooth score in [-1, +1]. Source: Faber (2007)."),
         ("Signal 3: ADM Momentum (27% effective weight)",
@@ -845,7 +891,7 @@ def build_report(
          "because it isolates relative strength within homogeneous risk categories. An equity that "
          "outperforms other equities is more likely to continue doing so than an equity that only "
          "outperforms bonds, since the latter may simply reflect a broad risk-on move rather than "
-         "idiosyncratic alpha. "
+         "idiosyncratic alpha.",
          "We compute blended momentum over 21/42/63/120-observation windows, rank within sleeves, and apply "
          "an absolute momentum filter. Source: Antonacci (2012)."),
         ("Signal 4: VIX/Yield-Curve Trip-Wire (10% blend)",
@@ -855,7 +901,7 @@ def build_report(
          "Economic mechanism: A separate trip-wire is needed because the HMM operates on monthly "
          "averages and can miss sudden spikes. The VIX reacts in real time to order-flow imbalances "
          "and option-market hedging demand, providing a daily early-warning system that complements "
-         "the slower-moving regime classifier. "
+         "the slower-moving regime classifier.",
          "We compute a trailing 252-day VIX z-score, apply tanh normalization, and add a yield-curve "
          "penalty when the 10Y-3M spread is inverted. Point-in-time safe: uses only lagged FRED data."),
         ("Signal 5: Macro Factor (18% effective weight)",
@@ -865,25 +911,30 @@ def build_report(
          "rises when real yields are high and falls when real yields are negative, making DFII10 a "
          "strong predictor of gold returns. Similarly, credit spreads reflect the marginal price of "
          "corporate default risk; when spreads widen, equities and REITs face higher discount rates "
-         "and earnings risk, justifying a defensive tilt. "
+         "and earnings risk, justifying a defensive tilt.",
          "Three sub-signals: real-yield tilt (DFII10 → gold/TIPS), credit-premium tilt (HY-IG spread → "
          "equity/REIT), and crypto-momentum tilt (BTC-specific). Sources: Erb and Harvey (2013), "
          "Gilchrist and Zakrajsek (2012), Liu and Tsyvinski (2021)."),
     ]
 
-    for label, hypothesis, description in signal_text:
+    for label, hypothesis, mechanism, implementation in signal_text:
         story.append(Paragraph(label, S["h2"]))
         story.append(Paragraph(hypothesis, S["body_small"]))
-        story.append(Paragraph(description, S["body_small"]))
+        story.append(Paragraph(mechanism, S["body_small"]))
+        story.append(Paragraph(implementation, S["body_small"]))
         story.append(Spacer(1, 0.05 * cm))
 
     story.append(Paragraph("Ensemble Construction and Optimization", S["h2"]))
+    # Split optimizer explanation to separate blending from constraints.
     story.append(Paragraph(
         "The five signals combine as follows: μ = 0.90 × (0.20 × regime_tilt × 0.10 + "
         "0.30 × trend × 0.06 + 0.30 × momo × 0.06 + 0.20 × macro_factor × 0.20) + "
         "0.10 × vix_tilt. Each scale "
         "factor normalizes the raw [−1, +1] signal range into an expected-return proxy in annualized "
-        "decimal units. The optimizer then solves: maximize μ′w − 1.5 × w′Σw − 0.0005 × Σ|w − "
+        "decimal units.",
+        S["body_small"]))
+    story.append(Paragraph(
+        "The optimizer then solves: maximize μ′w − 1.5 × w′Σw − 0.0005 × Σ|w − "
         "w_prev|, subject to all IPS Sections 6 and 7 constraints. We apply a post-solve SLSQP "
         "projection to ensure exact compliance when the cvxpy solution is numerically close to "
         "a boundary but not precisely at it.",
@@ -896,21 +947,32 @@ def build_report(
         S,
     )
 
+    # Split design-note paragraph to avoid a dense block of rationale.
     story.append(Paragraph(
         "Important design choice: the strategy contains no hard-coded safe-haven allocation. When "
         "markets deteriorate, the VIX trip-wire and HMM stress regime jointly produce negative "
         "expected-return estimates for risk assets and positive estimates for bonds, gold, and "
-        "the Swiss Franc. The optimizer responds by shifting toward these assets on its own, within "
+        "the Swiss Franc.",
+        S["body_small"]))
+    story.append(Paragraph(
+        "The optimizer responds by shifting toward these assets on its own, within "
         "the TAA bands. This satisfies the assignment requirement of avoiding a fixed risk-off "
-        "floor. The defensive posture adapts to current conditions rather than repeating a static "
+        "floor.",
+        S["body_small"]))
+    story.append(Paragraph(
+        "The defensive posture adapts to current conditions rather than repeating a static "
         "template every time the HMM labels a stress month.",
         S["body_small"]))
 
-    story.append(Spacer(1, 0.12 * cm))
+    # Reduced spacing to minimize white space before the pipeline architecture.
+    story.append(Spacer(1, 0.08 * cm))
     story.append(Paragraph("Signal Pipeline Architecture", S["h2"]))
     story.append(Paragraph(
         "Figure 21 shows how the five independent signals are computed in parallel, blended into a "
-        "single expected-return vector, and passed to the optimizer each month. Each swimlane "
+        "single expected-return vector, and passed to the optimizer each month.",
+        S["body_small"]))
+    story.append(Paragraph(
+        "Each swimlane "
         "represents one signal layer; the width of the arrow into the ensemble blender reflects "
         "the signal's weight in the final score. The optimizer then solves for new portfolio weights "
         "subject to all IPS constraints and the regime-based volatility budget.",
@@ -922,7 +984,8 @@ def build_report(
         S))
 
     # PAGE 5 - RISK BUDGETS + OPPORTUNISTIC + WALK-FORWARD
-    story.append(Spacer(1, 0.15 * cm))
+    # Reduced spacing to minimize white space before the risk-budget section.
+    story.append(Spacer(1, 0.10 * cm))
     _section_intro(story, "Regime-Based Risk Budgeting",
         "Rather than use one volatility target for all market conditions, the optimizer's monthly "
         "volatility budget shifts with the HMM regime label. The budget for a given month is "
@@ -959,30 +1022,40 @@ def build_report(
         S,
     )
 
-    story.append(Spacer(1, 0.12 * cm))
+    # Reduced spacing to minimize white space before the opportunistic sleeve.
+    story.append(Spacer(1, 0.08 * cm))
     _section_intro(story, "Opportunistic Sleeve",
         "The implemented opportunistic sleeve can allocate to 21 Appendix A assets (international equities, sovereign "
         "and corporate bonds, commodities, currencies, Ethereum) for short-term alpha capture. "
         "The IPS permits up to 15% aggregate exposure and 5% per asset, while this implementation "
         "uses a tighter internal 8% aggregate cap.",
         S)
+    # Split opportunistic-sleeve explanation into cap rationale and usage.
     story.append(Paragraph(
         "We apply a tighter internal cap of 8% aggregate. Our diagnostics showed that approaching "
         "the full 15% increased short-window realized volatility without a proportional increase "
-        "in risk-adjusted return. An asset enters the sleeve only if both trend and momentum scores "
+        "in risk-adjusted return.",
+        S["body_small"]))
+    story.append(Paragraph(
+        "An asset enters the sleeve only if both trend and momentum scores "
         "are positive at the decision date. The average allocation across the full backtest was "
         f"{_fmt_pct(taa['avg_opportunistic_weight'])}. Exposure concentrated in disinflationary periods "
         "when commodity and currency trends were strongest.",
         S["body_small"]))
 
-    story.append(Spacer(1, 0.12 * cm))
-    _section_intro(story, "Walk-Forward Validation",
+    # Reduced spacing to minimize white space before walk-forward validation.
+    story.append(Spacer(1, 0.08 * cm))
+    # Split validation setup into folds and point-in-time controls.
+    _section_heading(story, "Walk-Forward Validation", S)
+    story.append(Paragraph(
         "We split the out-of-sample period (January 2003 through April 2026) into five "
         "contiguous, expanding folds. Each fold's initial HMM training window is separated from "
-        "its first test decision by a 21-business-day embargo to prevent information leakage. "
+        "its first test decision by a 21-business-day embargo to prevent information leakage.",
+        S["body"]))
+    story.append(Paragraph(
         "The HMM is refit monthly on an expanding window of data available through each decision "
         "date. The table below shows the date ranges and per-fold results.",
-        S)
+        S["body"]))
     _add_chart(
         story,
         inputs["figures"]["folds"],
@@ -1019,28 +1092,28 @@ def build_report(
 
     # 1.4a - per-fold market-context interpretation
     story.append(Paragraph("Per-Fold Market Context and Interpretation", S["h2"]))
-    story.append(Paragraph(
-        "Fold 1 (2003–2007) spans the post-dot-com recovery and mid-2000s expansion. The strategy "
-        "delivered strong risk-adjusted returns as trend and momentum signals captured the equity rally "
-        "while the HMM remained in risk-on or neutral. "
-        "Fold 2 (2007–2012) contains the Global Financial Crisis. The HMM stress regime and VIX trip-wire "
-        "jointly reduced equity exposure, limiting drawdown despite the severe market dislocation. "
-        "Fold 3 (2012–2017) covers the post-crisis bull market. Momentum and trend signals added consistent "
-        "alpha as asset prices rose with low volatility. "
-        "Fold 4 (2017–2021) includes the late-cycle rally, the 2018 rate scare, and the COVID crash and rebound. "
-        "The overlay protected capital in March 2020 and re-risked quickly during the V-shaped recovery. "
-        "Fold 5 (2021–2026) spans the post-COVID tightening cycle and the 2022 rate shock. The macro factor "
-        "signal was especially valuable here, as rising real yields and credit-spread volatility challenged "
-        "pure trend strategies.",
-        S["body_small"]))
+    # Converted fold narrative to bullets for scanability.
+    fold_context = [
+        "Fold 1 (2003–2007): post-dot-com recovery and mid-2000s expansion; strong risk-adjusted returns as trend and momentum captured the equity rally while the HMM remained risk-on or neutral.",
+        "Fold 2 (2007–2012): Global Financial Crisis; the HMM stress regime and VIX trip-wire jointly reduced equity exposure, limiting drawdown despite severe dislocation.",
+        "Fold 3 (2012–2017): post-crisis bull market; momentum and trend signals added consistent alpha as asset prices rose with low volatility.",
+        "Fold 4 (2017–2021): late-cycle rally, 2018 rate scare, and COVID crash and rebound; the overlay protected capital in March 2020 and re-risked quickly during the V-shaped recovery.",
+        "Fold 5 (2021–2026): post-COVID tightening cycle and 2022 rate shock; the macro factor was especially valuable as rising real yields and credit-spread volatility challenged pure trend strategies.",
+    ]
+    for item in fold_context:
+        story.append(Paragraph(item, S["bullet_small"], bulletText="•"))
 
     # 1.4b - PIT disclosure paragraph (elevated from footnote)
     story.append(Paragraph("Point-in-Time Data Discipline", S["h2"]))
+    # Split point-in-time disclosure so data lag and missing-data handling are separate.
     story.append(Paragraph(
         "All macro inputs from FRED are shifted forward by one business day before entering any "
         "signal calculation. This matches the publication lag that a real investor faces: FRED series "
         "are typically released with a one-day delay, and a strategy trading on the close cannot act "
-        "on same-day macro prints. Asset price gaps (weekends, holidays, data suspensions) are left "
+        "on same-day macro prints.",
+        S["body_small"]))
+    story.append(Paragraph(
+        "Asset price gaps (weekends, holidays, data suspensions) are left "
         "as missing values. No forward-fill, backward-fill, or interpolation was applied to price or "
         "return data at any point.",
         S["body_small"]))
@@ -1048,30 +1121,44 @@ def build_report(
     # 1.4c - Trial Disclosure box (Marcos' Third Law)
     story.append(Spacer(1, 0.08 * cm))
     story.append(Paragraph("Trial Disclosure: Marcos' Third Law", S["h2"]))
+    # Converted trial parameter enumeration to bullets for clarity.
     story.append(Paragraph(
         "We disclose the full extent of trial configurations tested during research. A total of "
         f"{disclosed} distinct configurations were evaluated before selecting the final specification. "
-        "What varied across trials: signal ensemble weights (regime 15–25%, trend 20–30%, momentum 20–30%, "
-        "macro 10–20%, VIX trip-wire 5–15%), lookback windows for trend (120–250 observations) and momentum "
-        "(1/3/6/12 vs. 1/3/6/9/12 month blends), risk-aversion coefficients (1.0–2.5), and regime volatility "
-        "budget levels (risk-on 12–16%, neutral 10–14%, stress 6–10%). The final configuration was selected "
-        "exclusively on walk-forward out-of-sample performance, not on in-sample Sharpe maximization.",
+        "The following dimensions varied across trials:",
+        S["body_small"]))
+    trial_parameters = [
+        "Signal ensemble weights: regime 15–25%, trend 20–30%, momentum 20–30%, macro 10–20%, VIX trip-wire 5–15%.",
+        "Lookback windows: trend 120–250 observations; momentum 1/3/6/12 vs. 1/3/6/9/12 month blends.",
+        "Risk-aversion coefficients: 1.0–2.5.",
+        "Regime volatility budget levels: risk-on 12–16%, neutral 10–14%, stress 6–10%.",
+    ]
+    for item in trial_parameters:
+        story.append(Paragraph(item, S["bullet_small"], bulletText="•"))
+    story.append(Paragraph(
+        "The final configuration was selected exclusively on walk-forward out-of-sample performance, "
+        "not on in-sample Sharpe maximization.",
         S["body_small"]))
     story.append(Paragraph(
-        f"The Deflated Sharpe Ratio of {dsr['baseline_dsr']:.3f} adjusts the observed Sharpe for the "
-        f"{disclosed} trials. Values above 0.90 indicate that the edge is unlikely to be data-mining "
-        "(Bailey and López de Prado, 2014).",
+        f"The Deflated Sharpe Ratio of {dsr['baseline_dsr']:.3f} corrects the observed Sharpe for "
+        f"multiple testing across the {disclosed} disclosed trials. Bailey and López de Prado (2014) "
+        "discuss this adjustment; values above 0.90 indicate that the edge is unlikely to be data-mining.",
         S["body_small"]))
 
     _grey_divider(story)
-    _section_intro(story, "SAA and TAA Contribution",
+    # Split contribution intro to separate layer definitions from the final result.
+    _section_heading(story, "SAA and TAA Contribution", S)
+    story.append(Paragraph(
         "The table below breaks out what each layer contributes independently. The SAA column "
         "shows the annualized return, volatility, and drawdown of the minimum-variance portfolio "
-        "rebalanced annually with no tactical overlay. The TAA column shows what the overlay adds: "
+        "rebalanced annually with no tactical overlay.",
+        S["body"]))
+    story.append(Paragraph(
+        "The TAA column shows what the overlay adds: "
         "1.86% of additional return, a 2.4 percentage point reduction in volatility versus BM2, and "
         "a 10.6 percentage point improvement in maximum drawdown versus the SAA. The combined "
         "SAA+TAA column shows the final result.",
-        S)
+        S["body"]))
 
     contrib_data = [
         ["Metric", "SAA Only", "TAA Contribution", "SAA+TAA Combined"],
@@ -1104,27 +1191,38 @@ def build_report(
                            available_width=CONTENT_W, col_widths=saa_contrib_widths))
 
     story.append(Spacer(1, 0.1 * cm))
+    # Split overlay mechanics into action and interpretation.
     story.append(Paragraph(
         "The TAA overlay is additive, not multiplicative. It does not change the SAA weights "
-        "directly. Instead, each month the optimizer starts from the SAA target and tilts within "
+        "directly.",
+        S["body_small"]))
+    story.append(Paragraph(
+        "Instead, each month the optimizer starts from the SAA target and tilts within "
         "the TAA bands based on current signal readings. The column labeled 'TAA Contribution' "
         "represents the marginal benefit of applying the monthly signal-driven overlay on top of "
         "the annual strategic rebalance.",
         S["body_small"]))
 
     # 1.5a - cost drag interpretation
+    # Split cost discussion to separate implementation cost from retained return.
     story.append(Paragraph(
         "Cost drag rises from 0.01% in the standalone SAA to 0.26% in SAA+TAA. This 25 basis-point "
-        "increment is the implementation cost of the tactical overlay. Net of this drag, the TAA still produces "
+        "increment is the implementation cost of the tactical overlay.",
+        S["body_small"]))
+    story.append(Paragraph(
+        "Net of this drag, the TAA still produces "
         "1.61 percentage points of annual incremental return (1.87% gross uplift minus 0.25% cost drag). "
         "Transaction costs consume roughly one-quarter of the gross uplift, leaving most of the incremental "
         "return intact.",
         S["body_small"]))
 
     # 1.5b - turnover and liquidity considerations
+    # Split turnover discussion to separate scale from trading feasibility.
     story.append(Paragraph(
         "Turnover increases from 0.3x per year in the SAA to 5.1x in SAA+TAA. At $1.8 billion in "
-        "assets under management, 5.1x turnover implies roughly $9.2 billion in annual traded volume. "
+        "assets under management, 5.1x turnover implies roughly $9.2 billion in annual traded volume.",
+        S["body_small"]))
+    story.append(Paragraph(
         "While this sounds large, the strategy trades only liquid ETFs, futures, and currencies with "
         "tight bid-ask spreads. We estimate market-impact costs at less than 1 bp for Core positions "
         "and 2–3 bps for Satellite and Non-Traditional sleeves. The overlay is therefore practical "
@@ -1133,26 +1231,36 @@ def build_report(
         S["body_small"]))
 
     # 1.5c - IPS violations interpretation
+    # Split IPS violation discussion into definition and outcome.
     story.append(Paragraph(
         "IPS violations fall from 831 in the standalone SAA to 214 in SAA+TAA, with zero hard "
         "violations in either case. A 'soft violation' is a market-driven outcome: rolling realized "
         "volatility briefly exceeding 15% or drawdown dipping below -25%, which occurs during crises "
-        "regardless of optimizer settings. The remaining 214 soft violations are concentrated in "
+        "regardless of optimizer settings.",
+        S["body_small"]))
+    story.append(Paragraph(
+        "The remaining 214 soft violations are concentrated in "
         "March 2008, March 2020, and late 2022, when realized volatility spiked before the optimizer "
         "could rebalance. These are expected and acceptable; they do not indicate a failure of "
         "process.",
         S["body_small"]))
 
-    story.append(Spacer(1, 0.12 * cm))
-    _section_intro(story, "Signal Attribution (Leave-One-Out OOS Reruns)",
+    # Reduced spacing to minimize white space before signal attribution.
+    story.append(Spacer(1, 0.08 * cm))
+    # Split attribution intro to separate test design from interpretation.
+    _section_heading(story, "Signal Attribution (Leave-One-Out OOS Reruns)", S)
+    story.append(Paragraph(
         "Each bar shows the change in out-of-sample Sharpe when one signal is removed and the "
         "remaining four signals are retrained and retested from scratch. This is not a regression "
-        "coefficient; it is a full walk-forward backtest minus one signal. The VIX trip-wire "
+        "coefficient; it is a full walk-forward backtest minus one signal.",
+        S["body_small"]))
+    story.append(Paragraph(
+        "The VIX trip-wire "
         "contributes most during crisis periods (2008, 2020). The regime HMM contributes "
         "consistently across all folds. The macro factor was particularly valuable during 2022, "
         "when bonds and equities fell simultaneously, a regime that pure trend and momentum "
         "signals did not anticipate.",
-        S, "body_small")
+        S["body_small"]))
     story.append(Spacer(1, 0.1 * cm))
     story.append(_safe_image(inputs["figures"]["attribution"], CONTENT_W, S))
     story.append(_chart_caption(
@@ -1162,11 +1270,13 @@ def build_report(
 
     # PAGE 9 - IPS COMPLIANCE
     story.append(Spacer(1, 0.1 * cm))
-    _section_intro(story, "IPS Compliance Audit",
+    # Split IPS compliance intro for cleaner section opening.
+    _section_heading(story, "IPS Compliance Audit", S)
+    story.append(Paragraph(
         "The portfolio satisfied every IPS hard constraint across the full 6,901-day backtest. "
         "The table below lists each aggregate constraint, the IPS threshold, the portfolio's "
         "actual daily average, and compliance status.",
-        S)
+        S["body"]))
 
     comp_data = [
         ["Constraint", "IPS Limit", "SAA+TAA (avg)", "Status"],
@@ -1182,10 +1292,14 @@ def build_report(
                            available_width=CONTENT_W, col_widths=ips_widths))
 
     story.append(Spacer(1, 0.1 * cm))
+    # Split compliance categories into hard and soft violation definitions.
     story.append(Paragraph(
         "We separate the compliance audit into two categories. Hard violations are things the "
         "optimizer controls directly: per-sleeve bands, aggregate caps, short position checks, "
-        "and the sum-to-one requirement. Soft violations are market-driven outcomes: rolling "
+        "and the sum-to-one requirement.",
+        S["body_small"]))
+    story.append(Paragraph(
+        "Soft violations are market-driven outcomes: rolling "
         "21-day realized volatility that temporarily exceeds 15%, or a drawdown that dips below "
         "-25%. These happen during market crises regardless of optimizer settings.",
         S["body_small"]))
@@ -1196,28 +1310,23 @@ def build_report(
         f"and {taa_hard} hard violations. No aggregate cap was breached on any date.", S["body_small"]))
 
     # PAGE 10 - RECOMMENDATION
+    # Shortened adoption actions and numbered them for clearer implementation tracking.
     recs = [
-        "Use minimum-variance optimization for the annual SAA rebalance, constrained by "
-        "the IPS bands in Section 5 and the aggregate caps in Section 7.",
-        "Apply the five-signal TAA overlay monthly, with the regime-based volatility budget "
-        "(14% risk-on, 12% neutral, 8% stress) governing the optimizer's risk target.",
-        "Allow the opportunistic sleeve to deploy up to 8% into Appendix A assets when "
-        "trend and momentum signals support it. Review the cap annually and consider any increase toward "
-        "the IPS 15% maximum only if walk-forward diagnostics confirm no increase in short-window volatility.",
-        "Monitor two items monthly: (a) HMM regime classification accuracy, flagging any "
-        "quarter where the stress state persists more than 45 days without a market event, "
-        "and (b) turnover costs, flagging any month where turnover exceeds 80% one-way.",
-        "Conduct a full IPS review annually per Section 10.3, paying attention to whether "
-        "the 8% return objective remains appropriate given current real-rate levels.",
+        "Use minimum-variance optimization for the annual SAA rebalance within IPS bands.",
+        "Apply the five-signal TAA overlay monthly with regime-based volatility budgets.",
+        "Cap the opportunistic sleeve at 8% unless walk-forward diagnostics support a higher limit.",
+        "Monitor HMM regime classification and monthly turnover costs.",
+        "Conduct a full IPS review annually under Section 10.3.",
     ]
     rec_box_style = TableStyle([
         ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#EEF1F7")),
         ("BOX", (0, 0), (-1, -1), 2.0, COL_NAVY),
         ("LINEABOVE", (0, 0), (-1, 0), 4.0, COL_GOLD),
+        # Keep recommendation box padding consistent at 10 pt on all sides.
         ("TOPPADDING", (0, 0), (-1, -1), 10),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
-        ("LEFTPADDING", (0, 0), (-1, -1), 12),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 12),
+        ("LEFTPADDING", (0, 0), (-1, -1), 10),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 10),
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
     ])
     rec_header_style = ParagraphStyle(
@@ -1238,7 +1347,7 @@ def build_report(
         textColor=COL_NAVY,
         spaceAfter=4,
         spaceBefore=0,
-        alignment=TA_JUSTIFY,
+        alignment=TA_LEFT,
         wordWrap="LTR",
         allowWidows=0,
         allowOrphans=0,
@@ -1250,12 +1359,12 @@ def build_report(
         fontSize=9,
         leading=13,
         textColor=COL_NAVY,
-        leftIndent=6,
-        firstLineIndent=-6,
+        leftIndent=14,
+        firstLineIndent=-14,
         bulletIndent=0,
         spaceAfter=3,
         spaceBefore=0,
-        alignment=TA_JUSTIFY,
+        alignment=TA_LEFT,
         wordWrap="LTR",
         allowWidows=0,
         allowOrphans=0,
@@ -1268,15 +1377,19 @@ def build_report(
             "policy allocation. The proposed implementation should:",
             rec_body_style),
     ]
-    rec_content.extend(Paragraph(f"&#8226; {r}", rec_bullet_style) for r in recs)
+    rec_content.extend(Paragraph(f"{idx}. {r}", rec_bullet_style)
+                       for idx, r in enumerate(recs, start=1))
     rec_content.extend([
         Paragraph("Conditional Adoption Guidance", rec_header_style),
+        # Split adoption caveats from the formal re-evaluation trigger.
         Paragraph(
             "The overlay is least likely to add value in two environments: (a) prolonged range-bound, "
             "low-volatility markets where trend signals generate whipsaw losses, and (b) rapid flash-crash "
-            "reversals that last hours or days, too short for any monthly signal to react. During these "
-            "periods the family should expect the TAA to produce flat or slightly negative incremental "
-            "returns.",
+            "reversals that last hours or days, too short for any monthly signal to react.",
+            rec_body_style),
+        Paragraph(
+            "During these periods the family should expect the TAA to produce flat or slightly negative "
+            "incremental returns.",
             rec_body_style),
         Paragraph(
             "We propose a formal re-evaluation trigger: if the rolling 12-month TAA net excess return after costs "
@@ -1291,8 +1404,12 @@ def build_report(
             "the family should view 8% as an ambitious target rather than a guaranteed outcome in the current "
             "rate environment.",
             rec_body_style),
+        # Split risk disclosure so the statistical and dollar-loss points stand apart.
         Paragraph(
-            "We want to be direct about risk. The strategy will lose money in some months. The HMM "
+            "We want to be direct about risk. The strategy will lose money in some months.",
+            rec_body_style),
+        Paragraph(
+            "The HMM "
             "regime labels are statistical estimates and can misclassify a transition period. The "
             "maximum drawdown of -21.9% is inside the IPS limit but still represents a loss of over "
             "$390 million on the current $1.8 billion asset base. The family should be comfortable "
@@ -1301,13 +1418,27 @@ def build_report(
     ])
     rec_box = Table([[rec_content]], colWidths=[CONTENT_W], hAlign="LEFT")
     rec_box.setStyle(rec_box_style)
-    story.append(Spacer(1, 0.2 * cm))
+    # Omit the previous pre-box spacer so the recommendation box sits closer to the preceding section.
     story.append(rec_box)
-    story.append(Spacer(1, 0.2 * cm))
+    # Reduced spacing to minimize white space after the recommendation box.
+    story.append(Spacer(1, 0.12 * cm))
+
+    # Added references section to acknowledge the research cited in the body.
+    story.append(Paragraph("References", S["h2"]))
+    references = [
+        "Hamilton, J. D. (1989). A new approach to the economic analysis of nonstationary time series and the business cycle.",
+        "Faber, M. T. (2007). A quantitative approach to tactical asset allocation.",
+        "Antonacci, G. (2012). Risk premia harvesting through dual momentum.",
+        "Erb, C. B., and Harvey, C. R. (2013). The golden dilemma.",
+        "Gilchrist, S., and Zakrajsek, E. (2012). Credit spreads and business cycle fluctuations.",
+        "Liu, Y., and Tsyvinski, A. (2021). Risks and returns of cryptocurrency.",
+        "Bailey, D. H., and López de Prado, M. (2014). The Deflated Sharpe Ratio: correcting for selection bias, backtest overfitting, and non-normality.",
+    ]
+    for ref in references:
+        story.append(Paragraph(ref, S["body_small"]))
 
     # BUILD
-    # body_frame: top sits at PAGE_H - 2.0 cm, giving 0.55 cm clearance below the
-    # header text at PAGE_H - 1.45 cm.  (frame top = y_bottom + height)
+    # body_frame uses the reduced vertical margins above to increase usable body height.
     body_frame = Frame(left_margin, bottom_margin, CONTENT_W,
                        PAGE_H - top_margin - bottom_margin, id="content")
     # title_frame: no header, so the frame can extend closer to the top.

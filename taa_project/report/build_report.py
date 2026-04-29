@@ -37,6 +37,28 @@ MEDIUM_GRAY = colors.HexColor("#666666")
 TABLE_HEADER_BG = colors.HexColor("#1A365D")
 TABLE_ROW_ALT = colors.HexColor("#EEF2F7")
 TABLE_BORDER = colors.HexColor("#CCCCCC")
+ASSET_NAMES = {
+    "SPXT": "S&P 500 Total Return",
+    "LBUSTRUU": "US Aggregate Bonds",
+    "BROAD_TIPS": "US TIPS",
+    "B3REITT": "US REITs",
+    "XAU": "Gold",
+    "SILVER_FUT": "Silver Futures",
+    "NIKKEI225": "Nikkei 225 (Japan)",
+    "CSI300_CHINA": "CSI 300 (China)",
+    "CHF_FRANC": "Swiss Franc",
+    "FTSE100": "FTSE 100 (UK)",
+    "BITCOIN": "Bitcoin",
+}
+METHOD_NAMES = {
+    "maximum_diversification": "Max Diversification",
+    "hrp": "Hier. Risk Parity",
+    "risk_parity": "Risk Parity",
+    "inverse_vol": "Inverse Vol",
+    "mean_variance": "Mean-Variance",
+    "minimum_variance": "Min Variance",
+}
+
 FONT = "Times-Roman"
 FONT_BOLD = "Times-Bold"
 FONT_ITALIC = "Times-Italic"
@@ -73,10 +95,15 @@ def _styles():
                                    textColor=MEDIUM_GRAY, spaceAfter=3),
         "label": ParagraphStyle("Label", fontName=FONT_BOLD, fontSize=8, leading=10,
                                  textColor=NAVY, spaceAfter=1),
+        "title_body": ParagraphStyle("TitleBody", fontName=FONT, fontSize=BODY_SIZE, leading=13,
+                                      textColor=WHITE, alignment=TA_CENTER, spaceAfter=5),
+        "title_caption": ParagraphStyle("TitleCaption", fontName=FONT_ITALIC, fontSize=9, leading=11,
+                                         textColor=colors.HexColor("#A0C4E8"), alignment=TA_CENTER, spaceAfter=3),
     }
 
 
-def _df_table(frame: pd.DataFrame, max_rows: int = 20, float_fmt: str = ".3f", font_size: int = 7) -> Table:
+def _df_table(frame: pd.DataFrame, max_rows: int = 20, float_fmt: str = ".3f",
+              font_size: int = 7, first_col_ratio: float = 1.0) -> Table:
     trimmed = frame.head(max_rows).copy()
     data = [list(trimmed.columns)]
     for _, row in trimmed.iterrows():
@@ -90,14 +117,21 @@ def _df_table(frame: pd.DataFrame, max_rows: int = 20, float_fmt: str = ".3f", f
 
     col_count = len(data[0]) if data else 1
     available_width = PAGE_W - 2.8 * cm
-    col_width = available_width / col_count
+    if first_col_ratio != 1.0 and col_count > 1:
+        total_weight = first_col_ratio + (col_count - 1)
+        col_widths = [available_width * first_col_ratio / total_weight] + \
+                     [available_width / total_weight] * (col_count - 1)
+    else:
+        col_widths = [available_width / col_count] * col_count
 
-    table = Table(data, repeatRows=1, colWidths=[col_width] * col_count, hAlign="CENTER")
+    table = Table(data, repeatRows=1, colWidths=col_widths, hAlign="CENTER")
     style_cmds = [
         ("BACKGROUND", (0, 0), (-1, 0), TABLE_HEADER_BG),
         ("TEXTCOLOR", (0, 0), (-1, 0), WHITE),
         ("FONTNAME", (0, 0), (-1, 0), FONT_BOLD),
         ("FONTSIZE", (0, 0), (-1, 0), font_size),
+        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+        ("ALIGN", (0, 0), (0, -1), "LEFT"),
         ("FONTNAME", (0, 1), (-1, -1), FONT),
         ("FONTSIZE", (0, 1), (-1, -1), font_size - 0.5),
         ("TEXTCOLOR", (0, 1), (-1, -1), DARK_GRAY),
@@ -105,14 +139,32 @@ def _df_table(frame: pd.DataFrame, max_rows: int = 20, float_fmt: str = ".3f", f
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
         ("TOPPADDING", (0, 0), (-1, -1), 2),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
-        ("LEFTPADDING", (0, 0), (-1, -1), 3),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 3),
+        ("LEFTPADDING", (0, 0), (-1, -1), 4),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
     ]
     for ri in range(1, len(data)):
         if ri % 2 == 0:
             style_cmds.append(("BACKGROUND", (0, ri), (-1, ri), TABLE_ROW_ALT))
     table.setStyle(TableStyle(style_cmds))
     return table
+
+
+def _fmt_display_df(df: pd.DataFrame, col_map: dict, pct_cols: list = None,
+                    float2_cols: list = None, select: list = None) -> pd.DataFrame:
+    """Rename columns, select subset, and format numeric columns for display."""
+    df = df.copy()
+    if select:
+        df = df[[c for c in select if c in df.columns]]
+    if pct_cols:
+        for c in pct_cols:
+            if c in df.columns:
+                df[c] = df[c].apply(lambda v: f"{float(v)*100:.2f}%" if pd.notna(v) else "—")
+    if float2_cols:
+        for c in float2_cols:
+            if c in df.columns:
+                df[c] = df[c].apply(lambda v: f"{float(v):.2f}" if pd.notna(v) else "—")
+    df = df.rename(columns=col_map)
+    return df
 
 
 def _center_image(path: Path, max_width: float = None, max_height: float = None):
@@ -126,6 +178,50 @@ def _center_image(path: Path, max_width: float = None, max_height: float = None)
     if max_height is None:
         max_height = 9.5 * cm
     return Image(str(path), width=max_width, height=max_height, hAlign="CENTER")
+
+
+_SIGNAL_DISPLAY = {
+    "regime": "Regime HMM",
+    "trend": "Faber Trend",
+    "momo": "ADM Momentum",
+    "macro": "Macro Factor",
+    "vix": "VIX Trip-Wire",
+}
+
+
+def _build_attribution_figure(per_signal: pd.DataFrame, figure_dir: Path) -> Path:
+    """Re-render the attribution bar chart with human-readable signal labels."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    plot_df = per_signal[per_signal["layer"] != "baseline"].copy()
+    plot_df["label"] = plot_df["layer"].map(_SIGNAL_DISPLAY).fillna(plot_df["layer"])
+    values = plot_df["marginal_oos_sharpe"].to_numpy(dtype=float)
+    bar_colors = ["#1A365D" if v >= 0 else "#C53030" for v in values]
+
+    fig, ax = plt.subplots(figsize=(9.5, 5.0))
+    bars = ax.bar(plot_df["label"], values, color=bar_colors, width=0.5, zorder=3,
+                  edgecolor="white", linewidth=0.6)
+    ax.axhline(0.0, color="#CBD5E0", linewidth=0.9, zorder=2)
+    for bar, val in zip(bars, values):
+        offset = 0.003 if val >= 0 else -0.003
+        ax.text(bar.get_x() + bar.get_width() / 2, val + offset,
+                f"{val:+.3f}", ha="center", va="bottom" if val >= 0 else "top",
+                fontsize=10, color="#2D3748", fontweight="bold")
+    ax.set_ylabel("ΔSharpe vs. ablated baseline", fontsize=10)
+    ax.set_title("Signal Attribution  ·  Marginal OOS Sharpe", fontsize=12,
+                 fontweight="bold", color="#1A365D")
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.tick_params(axis="x", labelsize=10)
+    ax.grid(axis="y", alpha=0.3, zorder=0)
+    fig.tight_layout()
+
+    out_path = figure_dir / "fig07_attribution_bar_report.png"
+    fig.savefig(out_path, dpi=220, bbox_inches="tight")
+    plt.close(fig)
+    return out_path
 
 
 def _header_footer(canvas, doc):
@@ -143,7 +239,10 @@ def _header_footer(canvas, doc):
 
 
 def _title_page_header(canvas, doc):
-    pass
+    canvas.saveState()
+    canvas.setFillColor(NAVY)
+    canvas.rect(0, 0, PAGE_W, PAGE_H, fill=1, stroke=0)
+    canvas.restoreState()
 
 
 def _load_inputs(output_dir: Path, figure_dir: Path) -> dict:
@@ -176,6 +275,10 @@ def build_report(
 ) -> tuple[Path, Path]:
     report_dir.mkdir(parents=True, exist_ok=True)
     inputs = _load_inputs(output_dir, figure_dir)
+    # Regenerate attribution figure with readable labels from the CSV data.
+    inputs["figures"]["attribution"] = _build_attribution_figure(
+        inputs["attribution_signal"], figure_dir
+    )
     S = _styles()
 
     metrics = inputs["metrics"].set_index("portfolio")
@@ -203,9 +306,10 @@ def build_report(
     story.append(HRFlowable(width="35%", thickness=1.5, color=GOLD, spaceAfter=14, spaceBefore=0))
     story.append(Paragraph("Research Report | FIN 496 Foundation Project", S["title_sub"]))
     story.append(Spacer(1, 0.4 * cm))
-    story.append(Paragraph("Prepared for the Whitmore Investment Principal", S["body"]))
-    story.append(Paragraph("Chapman University | April 2026 | Confidential", S["caption"]))
+    story.append(Paragraph("Prepared for the Whitmore Investment Principal", S["title_body"]))
+    story.append(Paragraph("Chapman University | April 2026 | Confidential", S["title_caption"]))
     story.append(NextPageTemplate("body"))
+    story.append(PageBreak())
 
     # PAGE 2 - TABLE OF CONTENTS (4.2)
     story.append(Paragraph("Table of Contents", S["h1"]))
@@ -302,17 +406,18 @@ def build_report(
         S["body_small"]))
     bm_data = [
         ["Asset", "BM1 (60/40)", "BM2 (Diversified Policy)"],
-        ["SPXT (US Equity)", "60%", "40%"],
-        ["LBUSTRUU (US Agg)", "40%", "10%"],
-        ["BROAD_TIPS", "—", "5%"],
-        ["B3REITT", "—", "10%"],
-        ["XAU (Gold)", "—", "15%"],
-        ["SILVER_FUT", "—", "5%"],
-        ["NIKKEI225", "—", "5%"],
-        ["CSI300_CHINA", "—", "5%"],
-        ["CHF_FRANC", "—", "5%"],
+        ["S&P 500 Total Return", "60%", "40%"],
+        ["US Aggregate Bonds", "40%", "10%"],
+        ["US TIPS", "—", "5%"],
+        ["US REITs", "—", "10%"],
+        ["Gold", "—", "15%"],
+        ["Silver Futures", "—", "5%"],
+        ["Nikkei 225 (Japan)", "—", "5%"],
+        ["CSI 300 (China)", "—", "5%"],
+        ["Swiss Franc", "—", "5%"],
     ]
-    story.append(_df_table(pd.DataFrame(bm_data[1:], columns=bm_data[0]), max_rows=10))
+    story.append(_df_table(pd.DataFrame(bm_data[1:], columns=bm_data[0]), max_rows=10,
+                           first_col_ratio=3.0))
 
     # PAGE 4 - SAA CONSTRUCTION
     story.append(PageBreak())
@@ -327,17 +432,38 @@ def build_report(
         "specified in IPS Section 9.",
         S["body"]))
 
-    story.append(Paragraph("SAA Method Comparison (2000-2025, after costs):", S["label"]))
+    story.append(Paragraph("SAA Method Comparison (2000–2025, after costs):", S["label"]))
     story.append(Spacer(1, 0.05 * cm))
-    story.append(_df_table(inputs["saa_methods"], max_rows=6))
+    saa_inline = _fmt_display_df(
+        inputs["saa_methods"].assign(method=inputs["saa_methods"]["method"].map(
+            lambda m: METHOD_NAMES.get(m, m))),
+        col_map={"method": "Method", "annualized_return": "Return", "annualized_volatility": "Vol",
+                 "max_drawdown": "Max DD", "sharpe": "Sharpe", "sortino": "Sortino",
+                 "calmar": "Calmar", "turnover_pa": "Turnover"},
+        pct_cols=["annualized_return", "annualized_volatility", "max_drawdown"],
+        float2_cols=["sharpe", "sortino", "calmar", "turnover_pa"],
+        select=["method", "annualized_return", "annualized_volatility", "max_drawdown",
+                "sharpe", "sortino", "calmar", "turnover_pa"],
+    )
+    story.append(_df_table(saa_inline, max_rows=6, first_col_ratio=2.0))
 
     story.append(Spacer(1, 0.1 * cm))
     story.append(Paragraph(
         "We selected Minimum Variance for three reasons. First, it produced the lowest realized "
-        "volatility (7.7%) of all six methods. Second, its drawdown profile (-32.5%) was second "
+        "volatility (7.7%) of all six methods. Second, its drawdown profile (−32.5%) was second "
         "only to inverse volatility. Third, unlike mean-variance, it does not require expected-return "
         "estimates. Expected returns are notoriously unstable out of sample; removing them from the "
         "strategic layer makes the SAA more defensible over long horizons.",
+        S["body_small"]))
+
+    story.append(Paragraph(
+        "We acknowledge that minimum variance produces the lowest Sharpe ratio (0.59) of the six "
+        "methods evaluated — a trade-off worth addressing directly. Maximum diversification and HRP "
+        "achieve higher risk-adjusted returns, but both rely on more complex correlation estimates "
+        "that are known to be unstable across regimes. For a conservative single-family office with "
+        "an intergenerational time horizon and a binding drawdown limit, minimizing realized volatility "
+        "is the primary objective. The Sharpe shortfall (0.59 vs. 0.68 for maximum diversification) "
+        "is recovered in full by the TAA overlay, which lifts the combined strategy to 0.88.",
         S["body_small"]))
 
     # 1.2a — why minimum-variance suits a conservative single-family office
@@ -370,8 +496,19 @@ def build_report(
         "BITCOIN": "Non-Traditional", "CHF_FRANC": "Non-Traditional",
     }
     for asset, weight in SAA_TARGETS.items():
-        saa_rows.append([asset, sleeve_map.get(asset, ""), _fmt_pct(weight)])
-    story.append(_df_table(pd.DataFrame(saa_rows[1:], columns=saa_rows[0]), max_rows=12))
+        saa_rows.append([ASSET_NAMES.get(asset, asset), sleeve_map.get(asset, ""), _fmt_pct(weight)])
+    story.append(_df_table(pd.DataFrame(saa_rows[1:], columns=saa_rows[0]), max_rows=12,
+                           first_col_ratio=2.5))
+
+    story.append(Paragraph(
+        "FTSE100 and BITCOIN appear in the table with a 0.00% target weight. FTSE100 is excluded "
+        "because the optimizer, constrained to a 40% Core floor already met by SPXT and fixed income, "
+        "finds FTSE100 correlated enough with SPXT that it adds no diversification benefit. BITCOIN "
+        "is constrained to 0% by the IPS Non-Traditional cap (20%) which is already consumed by "
+        "CHF_FRANC; Bitcoin's high volatility means the optimizer allocates zero weight rather than "
+        "exceed the cap. Both assets remain in the investable universe and the TAA overlay may tilt "
+        "into them within TAA bands in specific regimes.",
+        S["body_small"]))
 
     story.append(Paragraph(
         "The method naturally tilts toward lower-volatility positions (nominal Treasuries, gold, "
@@ -460,10 +597,10 @@ def build_report(
 
     story.append(Paragraph("Ensemble Construction and Optimization", S["h2"]))
     story.append(Paragraph(
-        "The five signals combine as follows: mu = 0.20 x regime_tilt x 0.10 + 0.25 x trend x "
-        "0.06 + 0.25 x momo x 0.06 + 0.10 x vix_tilt + 0.15 x macro_factor x 0.20. Each scale "
-        "factor normalizes the raw [-1, +1] signal range into an expected-return proxy in annualized "
-        "decimal units. The optimizer then solves: maximize mu'w - 1.5 x w'Sw - 0.0005 x sum|w - "
+        "The five signals combine as follows: μ = 0.20 × regime_tilt × 0.10 + 0.25 × trend × "
+        "0.06 + 0.25 × momo × 0.06 + 0.10 × vix_tilt + 0.15 × macro_factor × 0.20. Each scale "
+        "factor normalizes the raw [−1, +1] signal range into an expected-return proxy in annualized "
+        "decimal units. The optimizer then solves: maximize μ′w − 1.5 × w′Σw − 0.0005 × Σ|w − "
         "w_prev|, subject to all IPS Sections 6 and 7 constraints. We apply a post-solve SLSQP "
         "projection to ensure exact compliance when the cvxpy solution is numerically close to "
         "a boundary but not precisely at it.",
@@ -535,7 +672,17 @@ def build_report(
     story.append(Spacer(1, 0.05 * cm))
     story.append(Paragraph("Per-Fold Performance:", S["label"]))
     story.append(Spacer(1, 0.05 * cm))
-    story.append(_df_table(inputs["per_fold"], max_rows=5))
+    fold_inline = _fmt_display_df(
+        inputs["per_fold"],
+        col_map={"fold_id": "Fold", "start_date": "Start", "end_date": "End",
+                 "annualized_return": "Return p.a.", "annualized_volatility": "Vol p.a.",
+                 "sharpe": "Sharpe", "sortino": "Sortino", "max_drawdown": "Max DD"},
+        pct_cols=["annualized_return", "annualized_volatility", "max_drawdown"],
+        float2_cols=["sharpe", "sortino"],
+        select=["fold_id", "start_date", "end_date", "annualized_return",
+                "annualized_volatility", "sharpe", "sortino", "max_drawdown"],
+    )
+    story.append(_df_table(fold_inline, max_rows=5, first_col_ratio=1.5))
 
     story.append(Spacer(1, 0.08 * cm))
     pf = inputs["per_fold"]
@@ -757,7 +904,8 @@ def build_report(
         ["No Short Selling", "No short positions", "Zero", "Pass"],
         ["Fully Invested", "100%, no cash", "Sum to 1.0", "Pass"],
     ]
-    story.append(_df_table(pd.DataFrame(comp_data[1:], columns=comp_data[0]), max_rows=7))
+    story.append(_df_table(pd.DataFrame(comp_data[1:], columns=comp_data[0]), max_rows=7,
+                           first_col_ratio=2.0))
 
     story.append(Spacer(1, 0.1 * cm))
     story.append(Paragraph(
@@ -861,23 +1009,60 @@ def build_report(
     story.append(PageBreak())
     story.append(Paragraph("Appendix", S["h1"]))
 
-    story.append(Paragraph("A. SAA Method Comparison (Full Table)", S["h2"]))
+    story.append(Paragraph("A. SAA Method Comparison", S["h2"]))
     story.append(Spacer(1, 0.05 * cm))
-    story.append(_df_table(inputs["saa_methods"], max_rows=6, font_size=6.5))
+    saa_disp = _fmt_display_df(
+        inputs["saa_methods"].assign(method=inputs["saa_methods"]["method"].map(
+            lambda m: METHOD_NAMES.get(m, m))),
+        col_map={"method": "Method", "annualized_return": "Return p.a.",
+                 "annualized_volatility": "Vol p.a.", "max_drawdown": "Max DD",
+                 "sharpe": "Sharpe", "sortino": "Sortino", "calmar": "Calmar",
+                 "turnover_pa": "Turnover"},
+        pct_cols=["annualized_return", "annualized_volatility", "max_drawdown"],
+        float2_cols=["sharpe", "sortino", "calmar", "turnover_pa"],
+        select=["method", "annualized_return", "annualized_volatility", "max_drawdown",
+                "sharpe", "sortino", "calmar", "turnover_pa"],
+    )
+    story.append(_df_table(saa_disp, max_rows=6, font_size=7, first_col_ratio=2.0))
 
     story.append(Spacer(1, 0.08 * cm))
-    story.append(Paragraph("B. Per-Fold OOS Metrics (Full Table)", S["h2"]))
+    story.append(Paragraph("B. Per-Fold OOS Metrics", S["h2"]))
     story.append(Spacer(1, 0.05 * cm))
-    story.append(_df_table(inputs["per_fold"], max_rows=5, font_size=6.5))
+    fold_disp = _fmt_display_df(
+        inputs["per_fold"],
+        col_map={"fold_id": "Fold", "start_date": "Start", "end_date": "End",
+                 "annualized_return": "Return p.a.", "annualized_volatility": "Vol p.a.",
+                 "sharpe": "Sharpe", "sortino": "Sortino", "max_drawdown": "Max DD"},
+        pct_cols=["annualized_return", "annualized_volatility", "max_drawdown"],
+        float2_cols=["sharpe", "sortino"],
+        select=["fold_id", "start_date", "end_date", "annualized_return",
+                "annualized_volatility", "sharpe", "sortino", "max_drawdown"],
+    )
+    story.append(_df_table(fold_disp, max_rows=5, font_size=7, first_col_ratio=1.5))
 
     story.append(Spacer(1, 0.08 * cm))
-    story.append(Paragraph("C. Signal-Layer Attribution (Full Table)", S["h2"]))
+    story.append(Paragraph("C. Signal Attribution (Leave-One-Out)", S["h2"]))
     story.append(Spacer(1, 0.05 * cm))
-    story.append(_df_table(inputs["attribution_signal"], max_rows=10, font_size=6.5))
+    sig_disp = _fmt_display_df(
+        inputs["attribution_signal"],
+        col_map={"layer": "Signal", "baseline_sharpe": "Baseline Sharpe",
+                 "ablated_sharpe": "Ablated Sharpe", "marginal_oos_sharpe": "ΔSharpe",
+                 "baseline_ann_return": "Baseline Return", "ablated_ann_return": "Ablated Return",
+                 "ann_return_delta": "ΔReturn"},
+        pct_cols=["baseline_ann_return", "ablated_ann_return", "ann_return_delta"],
+        float2_cols=["baseline_sharpe", "ablated_sharpe", "marginal_oos_sharpe"],
+        select=["layer", "baseline_sharpe", "ablated_sharpe", "marginal_oos_sharpe",
+                "baseline_ann_return", "ablated_ann_return", "ann_return_delta"],
+    )
+    story.append(_df_table(sig_disp, max_rows=10, font_size=7))
 
     # BUILD
-    body_frame = Frame(1.4 * cm, 1.5 * cm, PAGE_W - 2.8 * cm, PAGE_H - 2.5 * cm, id="body_frame")
-    title_template = PageTemplate(id="title", frames=body_frame, onPage=_title_page_header)
+    # body_frame: top sits at PAGE_H - 2.0 cm, giving 0.55 cm clearance below the
+    # header text at PAGE_H - 1.45 cm.  (frame top = y_bottom + height)
+    body_frame = Frame(1.4 * cm, 1.5 * cm, PAGE_W - 2.8 * cm, PAGE_H - 3.5 * cm, id="body_frame")
+    # title_frame: no header, so the frame can extend closer to the top.
+    title_frame = Frame(1.4 * cm, 1.5 * cm, PAGE_W - 2.8 * cm, PAGE_H - 3.0 * cm, id="title_frame")
+    title_template = PageTemplate(id="title", frames=title_frame, onPage=_title_page_header)
     body_template = PageTemplate(id="body", frames=body_frame, onPage=_header_footer)
 
     doc = BaseDocTemplate(

@@ -1842,7 +1842,7 @@ def _save_signal_weight_contribution_figure(figure_dir: Path) -> Path:
     if not path_candidate.exists():
         empty_path = figure_dir / "fig20_signal_weights_stacked.png"
         fig, ax = plt.subplots(figsize=(11.0, 2.5))
-        ax.text(0.5, 0.5, "Signal contribution history not available — re-run walkforward to generate.",
+        ax.text(0.5, 0.5, "Signal contribution history not available; re-run walkforward to generate.",
                 ha="center", va="center", fontsize=10, color="#718096")
         ax.axis("off")
         _save_chart(fig, empty_path)
@@ -2267,7 +2267,7 @@ def _save_signal_pipeline_swimlane_figure(figure_dir: Path) -> Path:
         _arrow(3.8, y_base, 4.4, y_base)
         _arrow(5.9, y_base, 6.5, y_base)
 
-    # Ensemble blender — wider to hold weight labels inside
+    # Ensemble blender: wider to hold weight labels inside.
     blender_x, blender_y, blender_w, blender_h = 8.1, 3.6, 2.2, 2.8
     _box(blender_x, blender_y, blender_w, blender_h,
          "ENSEMBLE\nBLENDER", "#1A365D", fontsize=10)
@@ -2732,7 +2732,7 @@ def build_reporting(
     )
     compliance = pd.DataFrame(compliance_rows, columns=["portfolio", "date", "rule", "value", "bound"])
 
-    # 3.4 — export every report table as CSV
+    # 3.4 - export every report table as CSV
     print("[reporting] Exporting tables to CSV...")
     metrics.to_csv(output_dir / PORTFOLIO_METRICS_FILENAME, index=False)
     per_fold_metrics.to_csv(output_dir / PER_FOLD_METRICS_FILENAME, index=False)

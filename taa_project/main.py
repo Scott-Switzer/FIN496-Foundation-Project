@@ -364,6 +364,7 @@ def run_pipeline(
     regime_vol_budgets: dict[str, float] | None = None,
     use_dd_guardrail: bool = False,
     use_daily_risk_governor: bool = False,
+    use_timesfm: bool = False,
     output_dir: Path = OUTPUT_DIR,
     figure_dir: Path = FIGURES_DIR,
     report_dir: Path = REPORT_DIR,
@@ -624,6 +625,9 @@ def main() -> None:
         default=TARGET_VOL,
         help="Internal ex-ante vol target used by the TAA optimizer (default 0.10 = IPS internal target).",
     )
+    parser.add_argument("--timesfm", dest="use_timesfm", action="store_true", help="Enable the optional TimesFM layer (currently disabled in final submission).")
+    parser.add_argument("--no-timesfm", dest="use_timesfm", action="store_false")
+    parser.set_defaults(use_timesfm=False)
     parser.add_argument(
         "--optimizer-mode",
         dest="optimizer_mode",
@@ -643,7 +647,7 @@ def main() -> None:
         dest="cvar_budget",
         type=float,
         default=0.025,
-        help="Daily CVaR budget as fraction (e.g., 0.025 = 2.5%). Only used when --optimizer-mode=cvar.",
+        help="Daily CVaR budget as fraction (e.g., 0.025 = 2.5%%). Only used when --optimizer-mode=cvar.",
     )
     parser.add_argument(
         "--cvar-lookback",
@@ -725,6 +729,7 @@ def main() -> None:
         regime_vol_budgets=_parse_regime_vol_budgets(args.regime_vol_budgets),
         use_dd_guardrail=args.use_dd_guardrail,
         use_daily_risk_governor=args.use_daily_risk_governor,
+        use_timesfm=args.use_timesfm,
         output_dir=Path(args.output_dir),
         figure_dir=Path(args.figure_dir),
         report_dir=Path(args.report_dir),

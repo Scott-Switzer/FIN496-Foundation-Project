@@ -1,1 +1,0 @@
-Report generated. See PDF for formatted version.

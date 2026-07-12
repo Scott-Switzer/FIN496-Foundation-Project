@@ -22,3 +22,7 @@ taa_project/outputs/runs/*/outputs/bm2_returns.csv
 taa_project/outputs/runs/*/outputs/bm2_weights.csv
 taa_project/outputs/runs/*/outputs/saa_returns.csv
 taa_project/outputs/runs/*/outputs/saa_weights.csv
+
+taa_project/outputs/
+.Rhistory
+COMPREHENSIVE_GUIDE.html

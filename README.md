@@ -1,5 +1,7 @@
 # Whitmore Capital Partners — FIN 496 Reproduction Guide
 
+
+> **Moved (2026-10-29):** this code now lives in [personal-hedge-fund](https://github.com/Scott-Switzer/personal-hedge-fund) at `research/fin496-foundation/`, imported as a full subtree with history. New work goes in the monorepo. This repo is frozen for review.
 > **Purpose**: Definitive step-by-step instructions to reproduce every artifact, metric, chart, and report submitted for the Chapman University FIN 496 Foundation Project. If you follow these instructions exactly, you will obtain the same numerical results we reported.
 
 ---
